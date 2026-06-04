@@ -19,6 +19,20 @@ class JobCreate(BaseModel):
     callback_url: Optional[str] = None
 
 
+class BatchFile(BaseModel):
+    url: str
+    rel_path: str = Field(..., description="相对 dest_dir 的路径，如 001.jpg 或 disc1/track01.mp3")
+    headers: Optional[dict[str, str]] = None
+
+
+class BatchCreate(BaseModel):
+    """一个分组任务（如一本漫画/一个 ASMR）：父任务一张卡，内含多文件。"""
+    name: str = Field(..., description="分组显示名，如作品标题")
+    dest_dir: str = Field(..., description="目标目录（绝对路径，或相对 DOWNLOAD_DIR）")
+    files: list[BatchFile]
+    callback_url: Optional[str] = None
+
+
 class JobFile(BaseModel):
     path: str
     length: int = 0

@@ -26,11 +26,14 @@ class FakeAria2:
         self.controls: list[tuple[str, str]] = []
         self.present = True   # aria2 是否还"认识"已加入的任务（模拟重启丢队列）
         self.gid_seq = 0
+        self.gids: list[str] = []
 
     async def add_uri(self, uris, options=None):
         self.added.append((uris, options or {}))
         self.gid_seq += 1
-        return f"gid-{self.gid_seq:03d}"
+        gid = f"gid-{self.gid_seq:03d}"
+        self.gids.append(gid)
+        return gid
 
     def _status(self, gid):
         return {
@@ -41,7 +44,7 @@ class FakeAria2:
         }
 
     async def tell_active(self):
-        return [self._status(f"gid-{self.gid_seq:03d}")] if (self.present and self.gid_seq) else []
+        return [self._status(g) for g in self.gids] if self.present else []
 
     async def tell_waiting(self, *a):
         return []
@@ -184,6 +187,50 @@ def test_sse_accepts_token_query(monkeypatch):
         assert c.get("/jobs").status_code == 401
         assert c.get("/jobs?token=secret").status_code == 200
     app.dependency_overrides.clear()
+
+
+def test_batch_creates_one_grouped_job(client):
+    c, f = client
+    r = c.post("/jobs/batch", json={
+        "name": "某漫画作品", "dest_dir": "/mnt/hdd/manga/book1",
+        "files": [
+            {"url": "http://x/001.jpg", "rel_path": "001.jpg", "headers": {"Cookie": "k=v"}},
+            {"url": "http://x/002.jpg", "rel_path": "002.jpg"},
+        ],
+    })
+    assert r.status_code == 200
+    b = r.json()
+    assert b["type"] == "batch" and b["name"] == "某漫画作品"
+    # 两个文件各入队一次
+    assert len(f.added) == 2
+    # 第一文件带 cookie 头 + dir 落在 dest_dir
+    _, opts0 = f.added[0]
+    assert opts0["dir"] == "/mnt/hdd/manga/book1"
+    assert opts0["out"] == "001.jpg"
+    assert "Cookie: k=v" in opts0["header"]
+    # 列表里只有一张卡（不是两行）
+    assert len(c.get("/jobs").json()) == 1
+
+
+def test_batch_aggregates_progress(client):
+    c, f = client
+    b = c.post("/jobs/batch", json={"name":"g","dest_dir":"/d","files":[
+        {"url":"http://x/a","rel_path":"a"},{"url":"http://x/b","rel_path":"b"}]}).json()
+    asyncio.run(main._reconcile_once(f))
+    g = c.get(f"/jobs/{b['id']}").json()
+    # 两文件各 250/1000 → 合计 500/2000 = 25%
+    assert g["total_bytes"] == 2000 and g["completed_bytes"] == 500
+    assert g["progress"] == 25.0 and g["status"] == "active"
+
+
+def test_batch_cancel_then_delete(client):
+    c, f = client
+    b = c.post("/jobs/batch", json={"name":"g","dest_dir":"/d","files":[
+        {"url":"http://x/a","rel_path":"a"},{"url":"http://x/b","rel_path":"b"}]}).json()
+    assert c.post(f"/jobs/{b['id']}/cancel").json()["status"] == "canceled"
+    assert ("remove", "gid-001") in f.controls and ("remove", "gid-002") in f.controls
+    assert c.delete(f"/jobs/{b['id']}").status_code == 200
+    assert c.get("/jobs").json() == []
 
 
 def test_auth_enforced(monkeypatch):

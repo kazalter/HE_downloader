@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from . import store
 from .aria2 import Aria2Client, Aria2Error
 from .config import settings
-from .schemas import GlobalStat, JobCreate, JobView
+from .schemas import BatchCreate, GlobalStat, JobCreate, JobView
 
 log = logging.getLogger("gateway")
 
@@ -101,7 +101,45 @@ def _build_options(type: str, resolved_dir: str, filename: Optional[str], header
     return options
 
 
+def _build_file_options(dest_dir: str, rel_path: str, headers: Optional[dict]) -> dict:
+    """分组任务里单个文件的 aria2 选项：dir = dest_dir + rel 的目录段，out = 文件名。"""
+    sub = posixpath.dirname(rel_path or "")
+    options: dict[str, object] = {"dir": posixpath.join(dest_dir, sub) if sub else dest_dir}
+    out = posixpath.basename(rel_path or "")
+    if out:
+        options["out"] = out
+    if headers:
+        options["header"] = [f"{k}: {v}" for k, v in headers.items()]
+    return options
+
+
 _STATUS_MAP = {"complete": "complete", "error": "error", "removed": "canceled"}
+
+
+def _aggregate_batch(files: list[dict]) -> dict:
+    """把子文件状态聚合成父 job 的 status/进度/速度。"""
+    total = sum(int(f.get("total_bytes") or 0) for f in files)
+    completed = sum(int(f.get("completed_bytes") or 0) for f in files)
+    speed = sum(int(f.get("download_speed") or 0) for f in files if f.get("status") == "active")
+    sts = [f.get("status") for f in files]
+    if files and all(s == "complete" for s in sts):
+        status = "complete"
+    elif any(s in ("active", "waiting", "pending") for s in sts):
+        status = "active"
+    elif any(s == "paused" for s in sts):
+        status = "paused"
+    elif any(s == "error" for s in sts):
+        status = "error"
+    else:
+        status = "canceled"
+    n_err = sum(1 for s in sts if s == "error")
+    return {
+        "status": status,
+        "total_bytes": total,
+        "completed_bytes": completed,
+        "download_speed": speed,
+        "error": f"{n_err} 个文件失败" if n_err else None,
+    }
 
 
 def _map_raw(raw: dict) -> dict:
@@ -158,6 +196,9 @@ async def _reconcile_once(aria2: Aria2Client) -> None:
     by_gid = {r.get("gid"): r for r in [*active, *waiting, *stopped] if r.get("gid")}
 
     for job in store.non_terminal():
+        if job.get("type") == "batch":
+            await _reconcile_batch(job, by_gid, aria2)
+            continue
         gid = job.get("gid")
         raw = by_gid.get(gid) if gid else None
         if raw is not None:
@@ -174,6 +215,38 @@ async def _reconcile_once(aria2: Aria2Client) -> None:
             log.info("requeued job %s -> gid %s", job["id"], new_gid)
         except Aria2Error as exc:
             store.set_status(job["id"], "error", str(exc))
+
+
+async def _reconcile_batch(job: dict, by_gid: dict, aria2: Aria2Client) -> None:
+    """分组任务：逐子文件同步/补入队，再把聚合结果写回父 job 行。"""
+    dest = job.get("dest_dir") or settings.download_dir
+    for f in store.batch_files(job["id"]):
+        if f.get("status") in store.TERMINAL:
+            continue
+        gid = f.get("gid")
+        raw = by_gid.get(gid) if gid else None
+        if raw is not None:
+            m = _map_raw(raw)
+            store.file_update(f["id"], status=m["status"], total_bytes=m["total_bytes"],
+                              completed_bytes=m["completed_bytes"],
+                              download_speed=int(raw.get("downloadSpeed", 0) or 0),
+                              error=m["error"])
+        elif gid is None:
+            opts = _build_file_options(dest, f.get("rel_path") or "", store.headers_of(f))
+            try:
+                ngid = await aria2.add_uri([f["url"]], opts)
+                store.file_set_gid(f["id"], ngid)
+                store.file_update(f["id"], status="active", total_bytes=int(f.get("total_bytes") or 0),
+                                  completed_bytes=int(f.get("completed_bytes") or 0))
+            except Aria2Error as exc:
+                store.file_update(f["id"], status="error", total_bytes=0, completed_bytes=0, error=str(exc))
+        else:
+            # gid 在 aria2 里消失了（重启丢队列）→ 清掉 gid，下一拍重新入队续传。
+            store.file_set_gid(f["id"], None)
+
+    files = store.batch_files(job["id"])
+    agg = _aggregate_batch(files)
+    store.update_progress(job["id"], name=job.get("name") or "", **agg)
 
 
 async def _reconcile_loop(aria2: Aria2Client) -> None:
@@ -221,6 +294,29 @@ async def create_job(payload: JobCreate, aria2: Aria2Client = Depends(get_aria2)
     return _row_to_view(store.get(job_id))
 
 
+@app.post("/jobs/batch", response_model=JobView, dependencies=[Depends(require_auth)])
+async def create_batch_job(payload: BatchCreate, aria2: Aria2Client = Depends(get_aria2)):
+    """一次提交多文件作为一个分组任务（如一本漫画/一个 ASMR）。HE Manager 走这里推收藏。"""
+    if not payload.files:
+        raise HTTPException(status_code=400, detail="files 不能为空")
+    resolved = _resolve_dir(payload.dest_dir)
+    job_id = store.create_batch(
+        name=payload.name, dest_dir=resolved, callback_url=payload.callback_url,
+        files=[{"url": f.url, "rel_path": f.rel_path, "headers": f.headers} for f in payload.files],
+    )
+    # 立即入队（不等对账那一拍），失败的文件标 error，由对账兜底/重试。
+    for f in store.batch_files(job_id):
+        opts = _build_file_options(resolved, f.get("rel_path") or "", store.headers_of(f))
+        try:
+            gid = await aria2.add_uri([f["url"]], opts)
+            store.file_set_gid(f["id"], gid)
+            store.file_update(f["id"], status="active", total_bytes=0, completed_bytes=0)
+        except (Aria2Error, httpx.HTTPError) as exc:
+            store.file_update(f["id"], status="error", total_bytes=0, completed_bytes=0, error=str(exc))
+    store.update_progress(job_id, name=payload.name, **_aggregate_batch(store.batch_files(job_id)))
+    return _row_to_view(store.get(job_id))
+
+
 @app.get("/jobs", response_model=list[JobView], dependencies=[Depends(require_auth)])
 async def list_jobs():
     return [_row_to_view(r) for r in store.list_all()]
@@ -241,39 +337,41 @@ def _require_job(job_id: str) -> dict:
     return row
 
 
-@app.post("/jobs/{job_id}/pause", response_model=JobView, dependencies=[Depends(require_auth)])
-async def pause_job(job_id: str, aria2: Aria2Client = Depends(get_aria2)):
-    row = _require_job(job_id)
-    if row.get("gid"):
+async def _control(job: dict, aria2: Aria2Client, *, method: str, job_status: str, file_status: str) -> None:
+    """对单任务的 gid 或分组任务所有子文件 gid 执行 aria2 操作 + 落库状态。"""
+    if job.get("type") == "batch":
+        for f in store.batch_files(job["id"]):
+            if f.get("status") in store.TERMINAL:
+                continue
+            if f.get("gid"):
+                try:
+                    await getattr(aria2, method)(f["gid"])
+                except Aria2Error:
+                    pass
+            store.file_set_status(f["id"], file_status)
+    elif job.get("gid"):
         try:
-            await aria2.pause(row["gid"])
+            await getattr(aria2, method)(job["gid"])
         except Aria2Error:
             pass
-    store.set_status(job_id, "paused")
+    store.set_status(job["id"], job_status)
+
+
+@app.post("/jobs/{job_id}/pause", response_model=JobView, dependencies=[Depends(require_auth)])
+async def pause_job(job_id: str, aria2: Aria2Client = Depends(get_aria2)):
+    await _control(_require_job(job_id), aria2, method="pause", job_status="paused", file_status="paused")
     return _row_to_view(store.get(job_id))
 
 
 @app.post("/jobs/{job_id}/resume", response_model=JobView, dependencies=[Depends(require_auth)])
 async def resume_job(job_id: str, aria2: Aria2Client = Depends(get_aria2)):
-    row = _require_job(job_id)
-    if row.get("gid"):
-        try:
-            await aria2.unpause(row["gid"])
-        except Aria2Error:
-            pass
-    store.set_status(job_id, "active")
+    await _control(_require_job(job_id), aria2, method="unpause", job_status="active", file_status="active")
     return _row_to_view(store.get(job_id))
 
 
 @app.post("/jobs/{job_id}/cancel", response_model=JobView, dependencies=[Depends(require_auth)])
 async def cancel_job(job_id: str, aria2: Aria2Client = Depends(get_aria2)):
-    row = _require_job(job_id)
-    if row.get("gid"):
-        try:
-            await aria2.remove(row["gid"])
-        except Aria2Error:
-            pass  # 可能已完成/已移除
-    store.set_status(job_id, "canceled")
+    await _control(_require_job(job_id), aria2, method="remove", job_status="canceled", file_status="canceled")
     return _row_to_view(store.get(job_id))
 
 
@@ -282,6 +380,14 @@ async def retry_job(job_id: str, aria2: Aria2Client = Depends(get_aria2)):
     row = _require_job(job_id)
     if row["status"] not in store.TERMINAL:
         raise HTTPException(status_code=409, detail="任务未结束，无需重试")
+    if row.get("type") == "batch":
+        # 只重试失败/取消的子文件：清 gid + 置 pending，对账协程会重新入队。
+        for f in store.batch_files(row["id"]):
+            if f.get("status") in ("error", "canceled"):
+                store.file_set_gid(f["id"], None)
+                store.file_set_status(f["id"], "pending")
+        store.set_status(job_id, "active")
+        return _row_to_view(store.get(job_id))
     opts = _build_options(row["type"], row.get("dest_dir") or settings.download_dir,
                           row.get("filename"), store.headers_of(row))
     try:
@@ -296,11 +402,8 @@ async def retry_job(job_id: str, aria2: Aria2Client = Depends(get_aria2)):
 @app.delete("/jobs/{job_id}", dependencies=[Depends(require_auth)])
 async def delete_job(job_id: str, aria2: Aria2Client = Depends(get_aria2)):
     row = _require_job(job_id)
-    if row.get("gid") and row["status"] not in store.TERMINAL:
-        try:
-            await aria2.remove(row["gid"])
-        except Aria2Error:
-            pass
+    if row["status"] not in store.TERMINAL:
+        await _control(row, aria2, method="remove", job_status="canceled", file_status="canceled")
     store.delete(job_id)
     return {"deleted": job_id}
 

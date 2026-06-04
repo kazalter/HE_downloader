@@ -50,6 +50,26 @@ def init() -> None:
         )
         """
     )
+    # 分组任务（type='batch'，如一本漫画/一个 ASMR）的子文件。父 job 一行、
+    # 这里 N 行；父 job 的进度/状态由对账协程聚合后写回 jobs 行。
+    _conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS job_files (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id          TEXT NOT NULL,
+            url             TEXT NOT NULL,
+            rel_path        TEXT,
+            headers         TEXT,
+            gid             TEXT,
+            status          TEXT NOT NULL DEFAULT 'pending',
+            total_bytes     INTEGER DEFAULT 0,
+            completed_bytes INTEGER DEFAULT 0,
+            download_speed  INTEGER DEFAULT 0,
+            error           TEXT
+        )
+        """
+    )
+    _conn.execute("CREATE INDEX IF NOT EXISTS idx_job_files_job ON job_files(job_id)")
     _conn.commit()
 
 
@@ -143,6 +163,7 @@ def non_terminal() -> list[dict]:
 
 def delete(job_id: str) -> None:
     with _lock:
+        _conn.execute("DELETE FROM job_files WHERE job_id = ?", (job_id,))
         _conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
         _conn.commit()
 
@@ -155,3 +176,66 @@ def headers_of(row: dict) -> Optional[dict]:
         return json.loads(raw)
     except (ValueError, TypeError):
         return None
+
+
+# --- 分组任务（batch） ------------------------------------------------------
+
+def create_batch(
+    *,
+    name: str,
+    dest_dir: str,
+    callback_url: Optional[str],
+    files: list[dict],
+) -> str:
+    """files: [{url, rel_path, headers(dict|None)}]。父 job type='batch'。"""
+    job_id = uuid.uuid4().hex
+    now = _now()
+    with _lock:
+        _conn.execute(
+            """INSERT INTO jobs (id, gid, type, source, dest_dir, filename, headers,
+                                 callback_url, status, name, created_at, updated_at)
+               VALUES (?, NULL, 'batch', ?, ?, NULL, NULL, ?, 'pending', ?, ?, ?)""",
+            (job_id, name, dest_dir, callback_url, name, now, now),
+        )
+        for f in files:
+            _conn.execute(
+                """INSERT INTO job_files (job_id, url, rel_path, headers, status)
+                   VALUES (?, ?, ?, ?, 'pending')""",
+                (job_id, f["url"], f.get("rel_path"),
+                 json.dumps(f["headers"]) if f.get("headers") else None),
+            )
+        _conn.commit()
+    return job_id
+
+
+def batch_files(job_id: str) -> list[dict]:
+    with _lock:
+        rows = _conn.execute(
+            "SELECT * FROM job_files WHERE job_id = ? ORDER BY id", (job_id,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def file_set_gid(file_id: int, gid: Optional[str]) -> None:
+    with _lock:
+        _conn.execute("UPDATE job_files SET gid = ? WHERE id = ?", (gid, file_id))
+        _conn.commit()
+
+
+def file_set_status(file_id: int, status: str) -> None:
+    with _lock:
+        _conn.execute("UPDATE job_files SET status = ? WHERE id = ?", (status, file_id))
+        _conn.commit()
+
+
+def file_update(
+    file_id: int, *, status: str, total_bytes: int, completed_bytes: int,
+    download_speed: int = 0, error: Optional[str] = None,
+) -> None:
+    with _lock:
+        _conn.execute(
+            """UPDATE job_files SET status = ?, total_bytes = ?, completed_bytes = ?,
+                                    download_speed = ?, error = ? WHERE id = ?""",
+            (status, total_bytes, completed_bytes, download_speed, error, file_id),
+        )
+        _conn.commit()
