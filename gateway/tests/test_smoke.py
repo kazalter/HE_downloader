@@ -25,6 +25,7 @@ class FakeAria2:
         self.added: list[tuple[list[str], dict]] = []
         self.controls: list[tuple[str, str]] = []
         self.present = True   # aria2 是否还"认识"已加入的任务（模拟重启丢队列）
+        self.done = False     # True = 所有任务下完（进 stopped，complete）
         self.gid_seq = 0
         self.gids: list[str] = []
 
@@ -36,6 +37,13 @@ class FakeAria2:
         return gid
 
     def _status(self, gid):
+        if self.done:
+            return {
+                "gid": gid, "status": "complete",
+                "totalLength": "1000", "completedLength": "1000", "downloadSpeed": "0",
+                "dir": "/downloads",
+                "files": [{"path": "/downloads/100MB.bin", "length": "1000", "completedLength": "1000"}],
+            }
         return {
             "gid": gid, "status": "active",
             "totalLength": "1000", "completedLength": "250", "downloadSpeed": "500",
@@ -44,13 +52,15 @@ class FakeAria2:
         }
 
     async def tell_active(self):
-        return [self._status(g) for g in self.gids] if self.present else []
+        if not self.present or self.done:
+            return []
+        return [self._status(g) for g in self.gids]
 
     async def tell_waiting(self, *a):
         return []
 
     async def tell_stopped(self, *a):
-        return []
+        return [self._status(g) for g in self.gids] if (self.present and self.done) else []
 
     async def pause(self, gid):
         self.controls.append(("pause", gid)); return gid
@@ -231,6 +241,147 @@ def test_batch_cancel_then_delete(client):
     assert ("remove", "gid-001") in f.controls and ("remove", "gid-002") in f.controls
     assert c.delete(f"/jobs/{b['id']}").status_code == 200
     assert c.get("/jobs").json() == []
+
+
+def test_batch_view_exposes_per_file_progress(client):
+    c, f = client
+    b = c.post("/jobs/batch", json={"name": "g", "dest_dir": "/d", "files": [
+        {"url": "http://x/a.jpg", "rel_path": "a.jpg"},
+        {"url": "http://x/sub/b.jpg", "rel_path": "sub/b.jpg"}]}).json()
+    asyncio.run(main._reconcile_once(f))
+    g = c.get(f"/jobs/{b['id']}").json()
+    assert len(g["files"]) == 2
+    f0 = g["files"][0]
+    assert f0["name"] == "a.jpg" and f0["rel_path"] == "a.jpg"
+    assert f0["total_bytes"] == 1000 and f0["completed_bytes"] == 250
+    assert f0["progress"] == 25.0 and f0["status"] == "active"
+    # 嵌套路径的子文件显示名取末段
+    assert g["files"][1]["name"] == "b.jpg"
+    # 单文件任务的 files 仍为空
+    s = c.post("/jobs", json={"type": "url", "source": "http://x/a.bin"}).json()
+    assert c.get(f"/jobs/{s['id']}").json()["files"] == []
+
+
+def test_claim_callback_is_idempotent():
+    # 同一 job 只能被认领一次（防止多拍对账重复回调）。
+    jid = store.create(type="url", source="http://x/a", dest_dir="/d",
+                       filename=None, headers=None, callback_url="http://cb/")
+    assert store.claim_callback(jid) is True
+    assert store.claim_callback(jid) is False
+
+
+class _FakeHttp:
+    """记录 callback POST 的假 http 客户端。"""
+    def __init__(self):
+        self.posted = []
+
+    async def post(self, url, json=None, timeout=None):
+        self.posted.append((url, json))
+        class R:
+            status_code = 200
+        return R()
+
+
+async def _reconcile_and_drain(f):
+    """跑一拍对账，并把它 create_task 出去的回调全部 await 完。"""
+    await main._reconcile_once(f)
+    for t in list(main._callback_tasks):
+        await t
+
+
+def test_callback_fires_on_complete(client):
+    c, f = client
+    http = _FakeHttp()
+    main.app.state.http = http
+    b = c.post("/jobs", json={"type": "url", "source": "http://x/a.bin",
+                              "callback_url": "http://cb/done"}).json()
+    f.done = True
+    asyncio.run(_reconcile_and_drain(f))
+    assert c.get(f"/jobs/{b['id']}").json()["status"] == "complete"
+    assert len(http.posted) == 1
+    url, body = http.posted[0]
+    assert url == "http://cb/done"
+    assert body["event"] == "complete" and body["job"]["id"] == b["id"]
+    # 再对账一拍不应重复回调（已认领）
+    asyncio.run(_reconcile_and_drain(f))
+    assert len(http.posted) == 1
+
+
+def test_callback_fires_for_batch_with_files(client):
+    c, f = client
+    http = _FakeHttp()
+    main.app.state.http = http
+    b = c.post("/jobs/batch", json={"name": "g", "dest_dir": "/d",
+        "callback_url": "http://cb/b", "files": [
+            {"url": "http://x/a", "rel_path": "a"},
+            {"url": "http://x/b", "rel_path": "b"}]}).json()
+    f.done = True
+    asyncio.run(_reconcile_and_drain(f))
+    assert c.get(f"/jobs/{b['id']}").json()["status"] == "complete"
+    assert len(http.posted) == 1
+    _, body = http.posted[0]
+    assert body["event"] == "complete"
+    assert len(body["job"]["files"]) == 2  # 回调载荷带上逐文件明细
+
+
+def test_no_callback_without_url(client):
+    c, f = client
+    http = _FakeHttp()
+    main.app.state.http = http
+    b = c.post("/jobs", json={"type": "url", "source": "http://x/a.bin"}).json()
+    f.done = True
+    asyncio.run(_reconcile_and_drain(f))
+    assert c.get(f"/jobs/{b['id']}").json()["status"] == "complete"
+    assert http.posted == []
+
+
+def test_he_sync_proxies_with_stored_creds(client, monkeypatch):
+    c, f = client
+    monkeypatch.setattr(main.settings, "he_manager_url", "http://he:8000")
+    calls = {"get": [], "post": []}
+
+    class _Resp:
+        def __init__(self, data, status=200):
+            self._data = data; self.status_code = status
+        def raise_for_status(self): pass
+        def json(self): return self._data
+
+    class FakeHeHttp:
+        async def get(self, url, params=None, headers=None, timeout=None):
+            calls["get"].append(url)
+            return _Resp([{"id": 7, "source_type": "wnacg", "favorites_url": "http://w/fav"}])
+        async def post(self, url, json=None, headers=None, timeout=None):
+            calls["post"].append((url, json))
+            return _Resp({"synced_count": 5, "source": {}, "items": []})
+
+    main.app.state.http = FakeHeHttp()
+    r = c.post("/he/sync", json={"source_type": "wnacg"})
+    assert r.status_code == 200
+    assert r.json()["synced_count"] == 5
+    # 转发到 HE 的 wnacg sync，只带 source_id + 地址（复用已存 cookie，不传凭据）
+    url, body = calls["post"][0]
+    assert url.endswith("/external/wnacg/sync")
+    assert body == {"source_id": 7, "favorites_url": "http://w/fav"}
+    assert "cookie" not in body
+
+
+def test_he_sync_unconfigured_source(client, monkeypatch):
+    c, f = client
+    monkeypatch.setattr(main.settings, "he_manager_url", "http://he:8000")
+
+    class _Resp:
+        status_code = 200
+        def raise_for_status(self): pass
+        def json(self): return []   # HE 里没有任何来源
+
+    class FakeHeHttp:
+        async def get(self, *a, **k): return _Resp()
+        async def post(self, *a, **k): raise AssertionError("不该走到 sync")
+
+    main.app.state.http = FakeHeHttp()
+    r = c.post("/he/sync", json={"source_type": "asmr"})
+    assert r.status_code == 400
+    assert "还没配置" in r.json()["detail"]
 
 
 def test_auth_enforced(monkeypatch):

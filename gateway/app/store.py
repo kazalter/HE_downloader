@@ -39,6 +39,7 @@ def init() -> None:
             filename        TEXT,
             headers         TEXT,           -- JSON object or NULL
             callback_url    TEXT,
+            callback_fired  INTEGER DEFAULT 0,  -- 完成回调是否已派发（防重复触发）
             status          TEXT NOT NULL,  -- pending|active|waiting|paused|complete|error|canceled
             name            TEXT DEFAULT '',
             total_bytes     INTEGER DEFAULT 0,
@@ -70,6 +71,10 @@ def init() -> None:
         """
     )
     _conn.execute("CREATE INDEX IF NOT EXISTS idx_job_files_job ON job_files(job_id)")
+    # 老库迁移：早于回调功能建的库没有 callback_fired 列，补上。
+    cols = {r["name"] for r in _conn.execute("PRAGMA table_info(jobs)")}
+    if "callback_fired" not in cols:
+        _conn.execute("ALTER TABLE jobs ADD COLUMN callback_fired INTEGER DEFAULT 0")
     _conn.commit()
 
 
@@ -139,6 +144,20 @@ def set_status(job_id: str, status: str, error: Optional[str] = None) -> None:
             (status, error, _now(), job_id),
         )
         _conn.commit()
+
+
+def claim_callback(job_id: str) -> bool:
+    """原子地认领完成回调：把 callback_fired 从 0 置 1，返回是否抢到。
+
+    用 UPDATE ... WHERE callback_fired=0 保证多次对账只派发一次回调（即使并发）。
+    """
+    with _lock:
+        cur = _conn.execute(
+            "UPDATE jobs SET callback_fired = 1 WHERE id = ? AND callback_fired = 0",
+            (job_id,),
+        )
+        _conn.commit()
+        return cur.rowcount > 0
 
 
 def get(job_id: str) -> Optional[dict]:

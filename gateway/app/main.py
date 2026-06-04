@@ -16,11 +16,22 @@ from fastapi.staticfiles import StaticFiles
 from . import store
 from .aria2 import Aria2Client, Aria2Error
 from .config import settings
-from .schemas import BatchCreate, GlobalStat, HePushRequest, JobCreate, JobView
+from .schemas import (
+    BatchCreate, GlobalStat, HePushRequest, HeSyncRequest, JobCreate, JobFile, JobView,
+)
 
 log = logging.getLogger("gateway")
 
 RECONCILE_INTERVAL = 1.0
+
+# 完成回调（M5）：任务跑到这些终态时回调 callback_url。HE 据此触发 scanner 入库。
+# 用户主动 cancel/delete 不回调（不经对账、状态直接置 canceled）。
+CALLBACK_EVENTS = {"complete", "error"}
+CALLBACK_RETRIES = 4          # 网络错误/5xx 时的重试次数
+CALLBACK_BACKOFF = 2.0        # 指数退避基数（秒）
+
+# 持有在飞的回调任务引用，否则可能被 GC 提前回收（asyncio 已知坑）。
+_callback_tasks: set[asyncio.Task] = set()
 
 
 # --- 生命周期：aria2 客户端 + DB + 对账协程 --------------------------------
@@ -168,6 +179,26 @@ def _map_raw(raw: dict) -> dict:
     }
 
 
+def _batch_file_views(job_id: str) -> list[JobFile]:
+    """分组任务的子文件列表（供面板展开逐文件看进度）。"""
+    out: list[JobFile] = []
+    for f in store.batch_files(job_id):
+        total = int(f.get("total_bytes") or 0)
+        completed = int(f.get("completed_bytes") or 0)
+        rel = f.get("rel_path") or ""
+        out.append(JobFile(
+            name=posixpath.basename(rel) or rel or f.get("url") or "",
+            rel_path=rel,
+            status=f.get("status") or "pending",
+            total_bytes=total,
+            completed_bytes=completed,
+            download_speed=int(f.get("download_speed") or 0),
+            progress=round(completed / total * 100, 1) if total else 0.0,
+            error=f.get("error"),
+        ))
+    return out
+
+
 def _row_to_view(row: dict) -> JobView:
     total = int(row.get("total_bytes", 0) or 0)
     completed = int(row.get("completed_bytes", 0) or 0)
@@ -183,8 +214,42 @@ def _row_to_view(row: dict) -> JobView:
         dir=row.get("dest_dir") or settings.download_dir,
         error=row.get("error"),
         created_at=float(row.get("created_at", 0) or 0),
-        files=[],
+        files=_batch_file_views(row["id"]) if row.get("type") == "batch" else [],
     )
+
+
+# --- 完成回调 webhook（M5） -------------------------------------------------
+
+async def _deliver_callback(http: httpx.AsyncClient, job_id: str, url: str, payload: dict) -> None:
+    """带重试地 POST 回调。4xx 视为送达（接收方收到了但拒绝，重试无意义）；
+    网络错误 / 5xx 才退避重试。失败到底只记日志（callback_fired 已置 1，不再补发）。"""
+    for attempt in range(CALLBACK_RETRIES):
+        try:
+            resp = await http.post(url, json=payload, timeout=30.0)
+            if resp.status_code < 500:
+                log.info("callback %s -> %s (%s)", job_id, url, resp.status_code)
+                return
+            log.warning("callback %s got %s, retrying", job_id, resp.status_code)
+        except httpx.HTTPError as exc:
+            log.warning("callback %s attempt %d failed: %s", job_id, attempt + 1, exc)
+        await asyncio.sleep(CALLBACK_BACKOFF * (2 ** attempt))
+    log.error("callback %s gave up after %d attempts: %s", job_id, CALLBACK_RETRIES, url)
+
+
+def _maybe_fire_callback(http: httpx.AsyncClient, job_id: str) -> None:
+    """若 job 已到终态且配了 callback_url 且尚未派发，则认领并后台投递回调。"""
+    row = store.get(job_id)
+    if not row or not row.get("callback_url"):
+        return
+    if row.get("status") not in CALLBACK_EVENTS:
+        return
+    if not store.claim_callback(job_id):   # 已派发过 / 被别的对账拍抢走
+        return
+    view = _row_to_view(row)
+    payload = {"event": row["status"], "job": view.model_dump()}
+    task = asyncio.create_task(_deliver_callback(http, job_id, row["callback_url"], payload))
+    _callback_tasks.add(task)
+    task.add_done_callback(_callback_tasks.discard)
 
 
 # --- 对账协程：DB 为真相源，aria2 重启则据 DB 重新入队 ----------------------
@@ -203,6 +268,7 @@ async def _reconcile_once(aria2: Aria2Client) -> None:
         raw = by_gid.get(gid) if gid else None
         if raw is not None:
             store.update_progress(job["id"], **_map_raw(raw))
+            _maybe_fire_callback(app.state.http, job["id"])
             continue
         # aria2 不认识这个 gid（刚崩溃重启丢了队列，或 job 还没拿到 gid）→ 据 DB 重新入队。
         # 配合下载目录里的 .aria2 控制文件 + aria2 --continue，已下的部分会续传。
@@ -247,6 +313,7 @@ async def _reconcile_batch(job: dict, by_gid: dict, aria2: Aria2Client) -> None:
     files = store.batch_files(job["id"])
     agg = _aggregate_batch(files)
     store.update_progress(job["id"], name=job.get("name") or "", **agg)
+    _maybe_fire_callback(app.state.http, job["id"])
 
 
 async def _reconcile_loop(aria2: Aria2Client) -> None:
@@ -314,6 +381,7 @@ async def create_batch_job(payload: BatchCreate, aria2: Aria2Client = Depends(ge
         except (Aria2Error, httpx.HTTPError) as exc:
             store.file_update(f["id"], status="error", total_bytes=0, completed_bytes=0, error=str(exc))
     store.update_progress(job_id, name=payload.name, **_aggregate_batch(store.batch_files(job_id)))
+    _maybe_fire_callback(app.state.http, job_id)  # 全失败即终态，不会再进对账，这里兜底回调
     return _row_to_view(store.get(job_id))
 
 
@@ -510,6 +578,48 @@ async def he_push(payload: HePushRequest):
             pass
         raise HTTPException(status_code=resp.status_code, detail=str(detail) or "HE 推送失败")
     return resp.json()
+
+
+@app.post("/he/sync", dependencies=[Depends(require_auth)])
+async def he_sync(payload: HeSyncRequest):
+    """重新同步某来源的收藏：HE 据已存的 cookie/token 去源站重拉，刷新它的收藏 DB。
+    凭据留在 HE 服务端（只传 source_id），不进浏览器。首次配置仍在 HE 自己的面板。"""
+    if not _he_configured():
+        raise HTTPException(status_code=503, detail="未配置 HE Manager（HE_MANAGER_URL）")
+    try:
+        sources = await _he_get("/external/sources")
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"HE 不可达: {exc}")
+    src = next((s for s in sources if (s.get("source_type") or "wnacg") == payload.source_type), None)
+    if not src:
+        raise HTTPException(
+            status_code=400,
+            detail=f"HE 里还没配置 {payload.source_type} 来源，请先去 HE Manager 同步一次",
+        )
+    fav_url = (src.get("favorites_url") or "").strip()
+    if not fav_url:
+        raise HTTPException(status_code=400, detail=f"{payload.source_type} 来源缺少地址，请先去 HE 配置")
+    # 复用 HE 已存的凭据：只带 source_id（+ 地址），不传 cookie/账号密码。
+    if payload.source_type == "asmr":
+        body = {"source_id": src["id"], "api_base": fav_url}
+    else:
+        body = {"source_id": src["id"], "favorites_url": fav_url}
+    try:
+        resp = await app.state.http.post(
+            _he_url(f"/external/{payload.source_type}/sync"),
+            json=body, headers=_he_headers(), timeout=180.0,  # sync 逐页抓源站，给足时间
+        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"HE 不可达: {exc}")
+    if resp.status_code != 200:
+        detail = ""
+        try:
+            detail = resp.json().get("detail", "")
+        except Exception:  # noqa: BLE001
+            pass
+        raise HTTPException(status_code=resp.status_code, detail=str(detail) or "HE 同步失败")
+    data = resp.json()
+    return {"synced_count": data.get("synced_count", 0), "source_type": payload.source_type}
 
 
 @app.get("/stat", response_model=GlobalStat, dependencies=[Depends(require_auth)])

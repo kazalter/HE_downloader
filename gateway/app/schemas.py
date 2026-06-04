@@ -39,10 +39,22 @@ class HePushRequest(BaseModel):
     item_ids: list[int]
 
 
+class HeSyncRequest(BaseModel):
+    """重新同步某来源的收藏：网关转发给 HE 的 sync，复用 HE 已存的 cookie/token。
+    只处理"已配置好的来源"；首次填 cookie/账号密码仍在 HE Manager 自己的面板。"""
+    source_type: Literal["asmr", "wnacg"]
+
+
 class JobFile(BaseModel):
-    path: str
-    length: int = 0
-    completed: int = 0
+    """分组任务里的单个子文件（前端可展开逐文件看进度）。"""
+    name: str = ""              # 显示名（rel_path 的文件名段）
+    rel_path: str = ""
+    status: str = "pending"     # 同 job 状态机
+    total_bytes: int = 0
+    completed_bytes: int = 0
+    download_speed: int = 0
+    progress: float = 0.0       # 0~100
+    error: Optional[str] = None
 
 
 class JobView(BaseModel):
