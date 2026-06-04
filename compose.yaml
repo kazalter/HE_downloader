@@ -3,6 +3,8 @@ services:
     build: ./aria2
     container_name: he_downloader_aria2
     restart: unless-stopped
+    # 以宿主用户身份跑，下载的文件归你（默认 1000:1000），不再是 root 占着删不动。
+    user: "${PUID:-1000}:${PGID:-1000}"
     # RPC 参数显式注入；下完即停、不做种（seed-time=0）。
     command:
       - --enable-rpc
