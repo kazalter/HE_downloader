@@ -33,6 +33,12 @@ class BatchCreate(BaseModel):
     callback_url: Optional[str] = None
 
 
+class HePushRequest(BaseModel):
+    """从 HE 收藏导入：把选中的某来源收藏推给下载中心（网关转发给 HE 的 push）。"""
+    source_type: Literal["asmr", "wnacg"]
+    item_ids: list[int]
+
+
 class JobFile(BaseModel):
     path: str
     length: int = 0

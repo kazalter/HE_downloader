@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from . import store
 from .aria2 import Aria2Client, Aria2Error
 from .config import settings
-from .schemas import BatchCreate, GlobalStat, JobCreate, JobView
+from .schemas import BatchCreate, GlobalStat, HePushRequest, JobCreate, JobView
 
 log = logging.getLogger("gateway")
 
@@ -424,6 +424,92 @@ async def events():
             await asyncio.sleep(RECONCILE_INTERVAL)
 
     return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+# --- 从 HE 收藏导入（网关代理 HE Manager） ----------------------------------
+# 一站式：下载中心列出 HE 的 asmr/wnacg 收藏、勾选 → 触发 HE 解析并推回网关。
+# HE 的地址 + token 留在网关服务端，前端只跟网关同源打交道（无 CORS、token 不进浏览器）。
+
+def _he_configured() -> bool:
+    return bool(settings.he_manager_url)
+
+
+def _he_url(path: str) -> str:
+    return settings.he_manager_url.rstrip("/") + path
+
+
+def _he_headers() -> dict:
+    return {"Authorization": f"Bearer {settings.he_manager_token}"} if settings.he_manager_token else {}
+
+
+async def _he_get(path: str, params: Optional[dict] = None):
+    resp = await app.state.http.get(_he_url(path), params=params, headers=_he_headers(), timeout=30.0)
+    resp.raise_for_status()
+    return resp.json()
+
+
+@app.get("/he/enabled")
+async def he_enabled():
+    return {"enabled": _he_configured()}
+
+
+@app.get("/he/sources", dependencies=[Depends(require_auth)])
+async def he_sources():
+    if not _he_configured():
+        raise HTTPException(status_code=503, detail="未配置 HE Manager（HE_MANAGER_URL）")
+    try:
+        return await _he_get("/external/sources")
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"HE 不可达: {exc}")
+
+
+@app.get("/he/favorites", dependencies=[Depends(require_auth)])
+async def he_favorites(source_type: Optional[str] = None, search: Optional[str] = None):
+    if not _he_configured():
+        raise HTTPException(status_code=503, detail="未配置 HE Manager（HE_MANAGER_URL）")
+    params = {}
+    if source_type:
+        params["source_type"] = source_type
+    if search:
+        params["search"] = search
+    try:
+        return await _he_get("/external/favorites", params or None)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"HE 不可达: {exc}")
+
+
+@app.post("/he/push", dependencies=[Depends(require_auth)])
+async def he_push(payload: HePushRequest):
+    if not _he_configured():
+        raise HTTPException(status_code=503, detail="未配置 HE Manager（HE_MANAGER_URL）")
+    # 该来源的下载位置（HE 的 push 端点要求传 download_root_path）从 source 取。
+    try:
+        sources = await _he_get("/external/sources")
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"HE 不可达: {exc}")
+    root = ""
+    for s in sources:
+        if (s.get("source_type") or "wnacg") == payload.source_type:
+            root = (s.get("download_root_path") or "").strip()
+            break
+    if not root:
+        raise HTTPException(status_code=400, detail=f"HE 里 {payload.source_type} 来源没设下载位置")
+    try:
+        resp = await app.state.http.post(
+            _he_url(f"/external/{payload.source_type}/push"),
+            json={"item_ids": payload.item_ids, "download_root_path": root},
+            headers=_he_headers(), timeout=120.0,
+        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"HE 不可达: {exc}")
+    if resp.status_code != 200:
+        detail = ""
+        try:
+            detail = resp.json().get("detail", "")
+        except Exception:  # noqa: BLE001
+            pass
+        raise HTTPException(status_code=resp.status_code, detail=str(detail) or "HE 推送失败")
+    return resp.json()
 
 
 @app.get("/stat", response_model=GlobalStat, dependencies=[Depends(require_auth)])

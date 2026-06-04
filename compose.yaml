@@ -42,6 +42,9 @@ services:
       - GATEWAY_API_TOKEN=${GATEWAY_API_TOKEN:-}
       - DOWNLOAD_DIR=/downloads
       - GATEWAY_DB_PATH=/data/gateway.db
+      # 从 HE 收藏导入：网关代理 HE Manager（留空则面板不显示 HE 收藏入口）。
+      - HE_MANAGER_URL=${HE_MANAGER_URL:-}
+      - HE_MANAGER_TOKEN=${HE_MANAGER_TOKEN:-}
     volumes:
       - ${DOWNLOAD_DIR:-./downloads}:/downloads
       # 任务库（SQLite）持久化：重启不丢。

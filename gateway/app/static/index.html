@@ -194,6 +194,31 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:
 
 @media (prefers-reduced-motion:reduce){*{animation-duration:.001ms !important;animation-iteration-count:1 !important}}
 @media (max-width:880px){.jobs.grid{grid-template-columns:1fr}.wrap{padding:20px 16px 70px}}
+
+/* 从 HE 收藏导入 */
+.he-btn{display:inline-flex;align-items:center;gap:7px;background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur));border-radius:999px;padding:8px 14px;font-size:13px;font-weight:600;color:var(--mut);cursor:pointer;white-space:nowrap;transition:all .25s}
+.he-btn:hover{color:#fff;border-color:rgba(var(--glow),.5)}
+.he-backdrop{position:fixed;inset:0;z-index:60;background:rgba(4,6,12,.62);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:24px}
+.he-modal{width:100%;max-width:720px;max-height:84vh;display:flex;flex-direction:column;background:rgba(16,18,28,.94);border:1px solid var(--line-strong);border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,.6);overflow:hidden}
+.he-head{display:flex;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid var(--line)}
+.he-head h3{margin:0;font-family:var(--font-display);font-size:16px;font-weight:700}
+.he-seg{display:inline-flex;gap:2px;padding:3px;background:var(--glass);border:1px solid var(--line);border-radius:10px}
+.he-seg button{border:none;background:transparent;color:var(--mut);cursor:pointer;padding:5px 12px;border-radius:7px;font-size:12.5px;font-weight:600}
+.he-seg button.on{background:var(--accent-grad);color:#fff}
+.he-close{margin-left:auto;background:transparent;border:none;color:var(--mut);cursor:pointer;font-size:18px;line-height:1}
+.he-close:hover{color:#fff}
+.he-search{margin:12px 18px 0;display:flex;align-items:center;gap:9px;background:var(--glass);border:1px solid var(--line);border-radius:10px;padding:8px 12px;color:var(--mut)}
+.he-search input{flex:1;background:transparent;border:none;outline:none;color:var(--fg);font-size:13.5px}
+.he-list{flex:1;overflow:auto;padding:12px 18px;display:flex;flex-direction:column;gap:7px}
+.he-item{display:flex;align-items:center;gap:11px;padding:9px 12px;border:1px solid var(--line);border-radius:11px;cursor:pointer;transition:all .18s}
+.he-item:hover{border-color:var(--line-strong);background:var(--glass)}
+.he-item.sel{border-color:rgba(var(--glow),.6);background:rgba(var(--glow),.1)}
+.he-item .cb{width:18px;height:18px;border-radius:6px;border:1.5px solid var(--line-strong);flex:none;display:grid;place-items:center;color:#fff}
+.he-item.sel .cb{background:var(--accent-grad);border-color:transparent}
+.he-item .ti{flex:1;min-width:0;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.he-item .tag{flex:none;font-size:11px;color:var(--s-complete);font-family:var(--font-mono)}
+.he-foot{display:flex;align-items:center;gap:12px;padding:14px 18px;border-top:1px solid var(--line)}
+.he-empty{text-align:center;color:var(--mut);padding:30px;font-size:13.5px}
 </style>
 </head>
 <body>
@@ -210,6 +235,7 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:
       <span class="stat-pill"><span class="live-dot" :class="{bad:!health.ok}"></span>{{ health.ok ? 'aria2' : '引擎离线' }}<b v-if="health.ok">{{ health.aria2 }}</b></span>
       <span class="stat-pill"><span class="ico"><span v-html="svg('bolt',15)"></span></span>实时 <b>{{ fmtSpeed(totalSpeed) }}</b></span>
       <span class="stat-pill"><span class="ico"><span v-html="svg('server',15)"></span></span>活动 <b>{{ activeCount }}</b> / {{ jobs.length }}</span>
+      <button class="he-btn" v-if="heAvailable" @click="openHe"><span v-html="svg('folder',15)"></span> HE 收藏</button>
     </header>
 
     <div class="add-card">
@@ -302,6 +328,37 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:
     </div>
   </div>
 
+  <div class="he-backdrop" v-if="heOpen" @click.self="heOpen=false">
+    <div class="he-modal">
+      <div class="he-head">
+        <h3>从 HE 收藏导入</h3>
+        <div class="he-seg">
+          <button :class="{on:heType==='asmr'}" @click="setHeType('asmr')">ASMR</button>
+          <button :class="{on:heType==='wnacg'}" @click="setHeType('wnacg')">wnacg</button>
+        </div>
+        <button class="he-close" @click="heOpen=false">✕</button>
+      </div>
+      <label class="he-search"><span v-html="svg('search',16)"></span><input v-model="heSearch" @input="loadHe" placeholder="搜索收藏标题…"></label>
+      <div class="he-list">
+        <div class="he-empty" v-if="heLoading">加载中…</div>
+        <div class="he-empty" v-else-if="heErr">{{ heErr }}</div>
+        <div class="he-empty" v-else-if="!heItems.length">没有收藏（或该来源未同步）</div>
+        <div class="he-item" v-for="it in heItems" :key="it.id" :class="{sel:heHas(it.id)}" @click="toggleHe(it.id)">
+          <span class="cb"><span v-if="heHas(it.id)" v-html="svg('check',13)"></span></span>
+          <span class="ti">{{ it.title }}</span>
+          <span class="tag" v-if="it.local_media_id">已在库</span>
+        </div>
+      </div>
+      <div class="he-foot">
+        <span class="he-empty" style="padding:0">已选 {{ heSel.length }}</span>
+        <div class="spacer"></div>
+        <button class="add-btn" style="height:40px;min-width:120px" :class="{morph:false}" :disabled="!heSel.length||hePushing" @click="pushHe">
+          <span class="label-swap">{{ hePushing ? '推送中…' : '下载选中' }}</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast-host">
     <div class="toast" :class="{out:t.out}" v-for="t in toasts" :key="t.id">
       <div class="toast-ico" :class="{err:t.kind==='error'}"><span v-html="svg(t.kind==='error'?'cancel':'check',20)"></span></div>
@@ -363,6 +420,10 @@ createApp({
     const swapping = ref(false)
     const segEl = ref(null)
     const ind = reactive({ left:4, width:0, ready:false })
+    // 从 HE 收藏导入
+    const heAvailable = ref(false), heOpen = ref(false), heType = ref('asmr')
+    const heSearch = ref(''), heItems = ref([]), heLoading = ref(false), heErr = ref(''), hePushing = ref(false)
+    const heSel = ref([])
 
     const typeChips = [
       {id:'all',label:'全部'},{id:'app',label:'软件'},{id:'doc',label:'文档'},
@@ -446,6 +507,35 @@ createApp({
       setTimeout(() => { toasts.value = toasts.value.filter(x => x.id !== id) }, 4050)
     }
 
+    // ---- 从 HE 收藏导入 ----
+    const heHas = (id) => heSel.value.includes(id)
+    function toggleHe(id) { heSel.value = heHas(id) ? heSel.value.filter(x => x !== id) : [...heSel.value, id] }
+    async function checkHe() { try { const r = await fetch('/he/enabled'); heAvailable.value = (await r.json()).enabled } catch (_) {} }
+    function openHe() { heOpen.value = true; heSel.value = []; loadHe() }
+    function setHeType(t) { heType.value = t; heSel.value = []; loadHe() }
+    async function loadHe() {
+      heLoading.value = true; heErr.value = ''
+      try {
+        const q = '/he/favorites?source_type=' + heType.value +
+          (heSearch.value.trim() ? '&search=' + encodeURIComponent(heSearch.value.trim()) : '')
+        heItems.value = await api(q)
+      } catch (e) { heErr.value = String(e.message || e); heItems.value = [] }
+      finally { heLoading.value = false }
+    }
+    async function pushHe() {
+      if (!heSel.value.length) return
+      hePushing.value = true; heErr.value = ''
+      try {
+        const ids = [...heSel.value]
+        const res = await api('/he/push', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source_type: heType.value, item_ids: ids }) })
+        heOpen.value = false
+        pushToast({ kind: 'success', title: '已加入下载队列', desc: (res.pushed || ids.length) + ' 个作品' })
+        pollJobs()
+      } catch (e) { heErr.value = String(e.message || e) }
+      finally { hePushing.value = false }
+    }
+
     // ---- 计算 ----
     const tabMatch = (j) => (TABS.find(t => t.id === tab.value) || TABS[0]).m(j)
     const filtered = computed(() => jobs.value.filter(j => tabMatch(j) && (type.value==='all' || kindOf(j)===type.value) && (!query.value.trim() || (j.name||'').toLowerCase().includes(query.value.trim().toLowerCase()))))
@@ -462,12 +552,14 @@ createApp({
     watch([tab, type, query], () => { swapping.value=false; requestAnimationFrame(() => requestAnimationFrame(() => { swapping.value=true })) })
     window.addEventListener('resize', measureSeg)
 
-    onMounted(() => { refreshHealth(); connect(); setInterval(refreshHealth, 5000); measureSeg() })
+    onMounted(() => { refreshHealth(); connect(); setInterval(refreshHealth, 5000); measureSeg(); checkHe() })
 
     return { jobs, health, tab, type, query, view, src, addPhase, toasts, swapping, segEl, ind, typeChips,
       tabsWithCount, filtered, totalSpeed, activeCount, completeCount, hasTerminal, filterLabel,
       svg, round, fmtBytes, fmtSpeed, fmtEta, fmtAgo, statusMeta, kindOf, kindLabel, kindHue, canPause, isTerminal, fillW,
-      fireAdd, action, clearDone }
+      fireAdd, action, clearDone,
+      heAvailable, heOpen, heType, heSearch, heItems, heLoading, heErr, hePushing, heSel,
+      heHas, toggleHe, openHe, setHeType, loadHe, pushHe }
   }
 }).mount('#app')
 </script>
