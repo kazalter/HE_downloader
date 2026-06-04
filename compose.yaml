@@ -43,6 +43,9 @@ services:
       - ${DOWNLOAD_DIR:-./downloads}:/downloads
       # 任务库（SQLite）持久化：重启不丢。
       - ./data/gateway:/data
+      # 面板 HTML 热挂载：改完 git pull + 刷新浏览器即生效，免 rebuild。
+      # （只挂这一个文件，不影响镜像里构建时拉的 vue.global.prod.js。）
+      - ./gateway/app/static/index.html:/app/app/static/index.html
     ports:
       - "${GATEWAY_PORT:-8011}:8000"
     depends_on:

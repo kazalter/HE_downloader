@@ -4,177 +4,470 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HE 下载中心</title>
+<!-- 字体走 Google Fonts 国内镜像(loli.net)，连不上自动回落系统字体，不阻塞 -->
+<link rel="preconnect" href="https://fonts.loli.net" crossorigin>
+<link href="https://fonts.loli.net/css2?family=Space+Grotesk:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  :root{
-    --bg:#0f1115; --card:#181b22; --card2:#1f232c; --line:#2a2f3a;
-    --fg:#e6e9ef; --mut:#8b93a3; --acc:#4f8cff;
-    --green:#2ecc71; --blue:#4f8cff; --orange:#f5a623; --red:#ff5d5d; --gray:#6b7280; --teal:#26c6a8;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,Segoe UI,Roboto,"Microsoft YaHei",sans-serif}
-  [v-cloak]{display:none}
-  a{color:var(--acc)}
-  .wrap{max-width:920px;margin:0 auto;padding:18px}
-  header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
-  header h1{font-size:18px;margin:0;font-weight:650}
-  .dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px}
-  .dot.ok{background:var(--green)} .dot.bad{background:var(--red)}
-  .pill{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:4px 11px;color:var(--mut);font-size:12.5px}
-  .pill b{color:var(--fg)}
-  .grow{flex:1}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
-  .addrow{display:flex;gap:8px;flex-wrap:wrap}
-  input{background:var(--card2);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:9px 11px;font-size:13.5px;outline:none}
-  input:focus{border-color:var(--acc)}
-  input.src{flex:1;min-width:240px}
-  input.sm{width:150px}
-  button{background:var(--card2);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:9px 14px;cursor:pointer;font-size:13.5px}
-  button:hover{border-color:var(--acc)}
-  button.primary{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
-  button.mini{padding:5px 10px;font-size:12.5px}
-  .err{color:var(--red);margin:8px 0 0;font-size:13px}
-  .muted{color:var(--mut)}
-  .job{display:flex;flex-direction:column;gap:8px}
-  .job .top{display:flex;align-items:center;gap:10px}
-  .job .name{font-weight:600;word-break:break-all;flex:1}
-  .badge{font-size:11.5px;padding:2px 9px;border-radius:20px;color:#fff;white-space:nowrap}
-  .bar{height:7px;background:var(--card2);border-radius:6px;overflow:hidden}
-  .bar>i{display:block;height:100%;background:var(--acc);transition:width .4s}
-  .bar>i.complete{background:var(--teal)} .bar>i.error{background:var(--red)} .bar>i.paused{background:var(--orange)}
-  .meta{display:flex;gap:14px;flex-wrap:wrap;color:var(--mut);font-size:12.5px}
-  .acts{display:flex;gap:6px;flex-wrap:wrap}
-  .empty{text-align:center;color:var(--mut);padding:34px}
-  .toks{display:flex;gap:8px;align-items:center;margin-top:6px}
-  details summary{cursor:pointer;color:var(--mut);font-size:12.5px}
+:root{
+  /* 强调色：青翠（交接稿选定） */
+  --a1:#22d3a8; --a2:#3b9bff; --a3:#38e8ff;
+  --accent-grad:linear-gradient(110deg,var(--a1),var(--a2));
+  --glow:34 211 168;
+  --bg:#07080d; --fg:#eef0f7; --mut:#9097ad; --faint:#5b6178;
+  --line:rgba(255,255,255,.08); --line-strong:rgba(255,255,255,.14);
+  --glass:rgba(255,255,255,.045); --glass-2:rgba(255,255,255,.07);
+  --blur:14px;
+  --s-waiting:#38bdf8; --s-paused:#f5b14c; --s-complete:#34e0a1; --s-error:#ff5d7a; --s-canceled:#717891;
+  --r-lg:22px; --r-md:15px; --r-sm:10px;
+  --font-display:"Space Grotesk","PingFang SC","Microsoft YaHei",sans-serif;
+  --font-body:"Manrope","PingFang SC","Microsoft YaHei",sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,monospace;
+  --motion:.6;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:var(--font-body);-webkit-font-smoothing:antialiased}
+[v-cloak]{display:none}
+::selection{background:rgba(var(--glow),.35);color:#fff}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:8px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background:rgba(var(--glow),.4);background-clip:padding-box}
+
+.app-shell{position:relative;min-height:100vh;overflow:hidden;isolation:isolate}
+.aurora-bg{position:fixed;inset:0;z-index:-2;pointer-events:none;background:radial-gradient(50% 40% at 50% -5%,rgba(34,211,168,.16),transparent 70%),var(--bg)}
+.aurora-bg::before{content:"";position:absolute;inset:0;opacity:.5;background-image:linear-gradient(rgba(34,211,168,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(34,211,168,.06) 1px,transparent 1px);background-size:46px 46px;mask-image:radial-gradient(70% 60% at 50% 35%,#000,transparent 80%);-webkit-mask-image:radial-gradient(70% 60% at 50% 35%,#000,transparent 80%)}
+.aurora-bg::after{content:"";position:absolute;inset:-20%;background:radial-gradient(30% 30% at 30% 40%,rgba(34,211,168,.12),transparent 60%),radial-gradient(26% 26% at 75% 55%,rgba(59,155,255,.12),transparent 60%);filter:blur(30px);animation:drift calc(26s / var(--motion,1)) ease-in-out infinite alternate}
+.grain{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.035;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+@keyframes drift{0%{transform:translate3d(0,0,0) scale(1)}100%{transform:translate3d(4%,3%,0) scale(1.12)}}
+
+.wrap{max-width:1180px;margin:0 auto;padding:32px 30px 80px}
+
+.topbar{display:flex;align-items:center;gap:16px;margin-bottom:22px}
+.brand{display:flex;align-items:center;gap:13px}
+.brand-mark{width:42px;height:42px;border-radius:13px;background:var(--accent-grad);display:grid;place-items:center;color:#fff;box-shadow:0 6px 22px rgba(var(--glow),.45),inset 0 1px 0 rgba(255,255,255,.4);position:relative;overflow:hidden}
+.brand-mark svg{position:relative;z-index:1}
+.brand-mark::after{content:"";position:absolute;inset:0;background:linear-gradient(120deg,transparent 30%,rgba(255,255,255,.5) 50%,transparent 70%);transform:translateX(-130%);animation:sheen calc(5s / var(--motion,1)) ease-in-out infinite}
+@keyframes sheen{0%,70%{transform:translateX(-130%)}100%{transform:translateX(130%)}}
+.brand-title{font-family:var(--font-display);font-weight:700;font-size:20px;letter-spacing:-.01em;line-height:1.2;white-space:nowrap}
+.brand-sub{font-size:11.5px;color:var(--mut);letter-spacing:.14em;text-transform:uppercase;margin-top:4px}
+.spacer{flex:1}
+.stat-pill{display:inline-flex;align-items:center;gap:8px;background:rgba(16,18,28,.55);border:1px solid var(--line);backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur));border-radius:999px;padding:8px 14px;font-size:13px;color:#aeb4c9;white-space:nowrap}
+.stat-pill b{color:var(--fg);font-family:var(--font-mono);font-weight:600}
+.stat-pill .ico{color:var(--a1);display:grid;place-items:center}
+.live-dot{width:8px;height:8px;border-radius:50%;background:var(--s-complete);box-shadow:0 0 0 0 rgba(52,224,161,.6);animation:pulseDot calc(2.2s / var(--motion,1)) ease-out infinite}
+.live-dot.bad{background:var(--s-error);animation:none}
+@keyframes pulseDot{0%{box-shadow:0 0 0 0 rgba(52,224,161,.55)}100%{box-shadow:0 0 0 9px rgba(52,224,161,0)}}
+
+.add-card{display:flex;align-items:center;gap:12px;background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur));border-radius:var(--r-md);padding:9px 9px 9px 18px;margin-bottom:18px;box-shadow:0 10px 40px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.05);transition:border-color .3s,box-shadow .3s}
+.add-card:focus-within{border-color:rgba(var(--glow),.5);box-shadow:0 10px 44px rgba(var(--glow),.18),inset 0 1px 0 rgba(255,255,255,.06)}
+.add-card .lead{color:var(--a1);display:grid;place-items:center}
+.add-input{flex:1;background:transparent;border:none;outline:none;color:var(--fg);font-family:var(--font-body);font-size:15px}
+.add-input::placeholder{color:var(--faint)}
+.add-btn{position:relative;border:none;cursor:pointer;height:44px;min-width:132px;padding:0 22px;border-radius:11px;background:var(--accent-grad);color:#fff;font-family:var(--font-body);font-weight:700;font-size:14.5px;display:inline-flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 6px 20px rgba(var(--glow),.4),inset 0 1px 0 rgba(255,255,255,.35);transition:transform .18s cubic-bezier(.34,1.56,.64,1),box-shadow .25s,min-width .35s cubic-bezier(.65,0,.35,1);overflow:hidden}
+.add-btn:hover{transform:translateY(-2px) scale(1.02);box-shadow:0 10px 30px rgba(var(--glow),.55)}
+.add-btn:active{transform:translateY(0) scale(.97)}
+.add-btn.morph{min-width:44px;padding:0;border-radius:50%}
+.add-btn .label-swap{display:inline-flex;align-items:center;gap:7px;transition:opacity .2s,transform .2s}
+.add-btn.morph .label-swap{opacity:0;transform:scale(.6);position:absolute}
+.add-btn .morph-ico{position:absolute;opacity:0;transform:scale(.5);transition:opacity .25s,transform .3s cubic-bezier(.34,1.56,.64,1)}
+.add-btn.morph .morph-ico{opacity:1;transform:scale(1)}
+.add-btn .ring{animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+.seg{position:relative;display:inline-flex;gap:2px;padding:4px;background:var(--glass);border:1px solid var(--line);border-radius:13px;backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur))}
+.seg-btn{position:relative;z-index:1;border:none;background:transparent;cursor:pointer;color:var(--mut);font-family:var(--font-body);font-weight:600;font-size:13.5px;padding:7px 15px;border-radius:9px;display:inline-flex;align-items:center;gap:7px;transition:color .25s;white-space:nowrap}
+.seg-btn .cnt{font-family:var(--font-mono);font-size:11px;font-weight:600;padding:1px 6px;border-radius:6px;background:rgba(255,255,255,.07);color:var(--mut);transition:all .25s}
+.seg-btn.on{color:#fff}
+.seg-btn.on .cnt{background:rgba(255,255,255,.18);color:#fff}
+.seg-ind{position:absolute;z-index:0;top:4px;bottom:4px;border-radius:9px;background:var(--accent-grad);box-shadow:0 4px 14px rgba(var(--glow),.45);transition:left .38s cubic-bezier(.34,1.3,.5,1),width .38s cubic-bezier(.34,1.3,.5,1)}
+.chips{display:inline-flex;gap:8px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:var(--glass);color:var(--mut);border-radius:999px;padding:7px 13px;font-size:13px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;flex:none;transition:all .25s cubic-bezier(.34,1.3,.5,1);backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur))}
+.chip:hover{border-color:var(--line-strong);color:var(--fg);transform:translateY(-1px)}
+.chip.on{color:#fff;border-color:transparent;background:var(--accent-grad);box-shadow:0 5px 16px rgba(var(--glow),.4)}
+.chip svg{opacity:.85}
+.search{display:flex;align-items:center;gap:9px;flex:1;min-width:200px;max-width:340px;background:var(--glass);border:1px solid var(--line);border-radius:12px;padding:9px 14px;color:var(--mut);backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur));transition:border-color .25s,box-shadow .25s}
+.search:focus-within{border-color:rgba(var(--glow),.5);box-shadow:0 0 0 4px rgba(var(--glow),.1);color:var(--a1)}
+.search input{flex:1;background:transparent;border:none;outline:none;color:var(--fg);font-family:var(--font-body);font-size:14px}
+.search input::placeholder{color:var(--faint)}
+.view-toggle{display:inline-flex;gap:3px;padding:4px;background:var(--glass);border:1px solid var(--line);border-radius:12px;backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur))}
+.view-toggle button{border:none;background:transparent;color:var(--mut);cursor:pointer;padding:7px;border-radius:8px;display:grid;place-items:center;transition:all .22s}
+.view-toggle button:hover{color:var(--fg)}
+.view-toggle button.on{color:#fff;background:rgba(var(--glow),.22);box-shadow:inset 0 0 0 1px rgba(var(--glow),.4)}
+
+.jobs{display:flex;flex-direction:column;gap:11px}
+.jobs.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+@keyframes cardIn{from{opacity:0;transform:translateY(16px) scale(.98)}to{opacity:1;transform:none}}
+.job-anim{opacity:1}
+.jobs.swapping .job-anim{animation:cardIn calc(.46s / var(--motion,1)) cubic-bezier(.22,1,.36,1) both;animation-delay:calc(var(--i,0) * .045s / var(--motion,1))}
+
+.job-card{position:relative;background:rgba(13,15,24,.55);border:1px solid rgba(var(--glow),.18);backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur));border-radius:16px;padding:17px 19px;box-shadow:0 0 0 1px rgba(var(--glow),.05),0 8px 26px rgba(0,0,0,.4);transition:transform .3s cubic-bezier(.22,1,.36,1),border-color .3s,box-shadow .3s;overflow:hidden}
+.job-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--card-accent,transparent);opacity:.85}
+.job-card:hover{transform:translateY(-3px);box-shadow:0 0 34px rgba(var(--glow),.35),0 14px 40px rgba(0,0,0,.45)}
+.job-card.st-active{--card-accent:var(--accent-grad);border-color:rgba(var(--glow),.4);box-shadow:0 0 26px rgba(var(--glow),.22),inset 0 0 22px rgba(var(--glow),.06)}
+.job-card.st-waiting{--card-accent:var(--s-waiting)}
+.job-card.st-paused{--card-accent:var(--s-paused)}
+.job-card.st-complete{--card-accent:var(--s-complete)}
+.job-card.st-error{--card-accent:var(--s-error)}
+.job-card.st-canceled{--card-accent:var(--s-canceled)}
+.job-head{display:flex;align-items:flex-start;gap:14px}
+.kind-ico{flex:none;width:46px;height:46px;border-radius:11px;display:grid;place-items:center;position:relative;background:hsl(var(--kh) 60% 60% / .14);color:hsl(var(--kh) 80% 72%);border:1px solid hsl(var(--kh) 70% 60% / .25)}
+.job-card.st-active .kind-ico{box-shadow:0 0 18px hsl(var(--kh) 80% 60% / .3)}
+.job-meta{flex:1;min-width:0}
+.job-name{font-weight:700;font-size:15.5px;color:var(--fg);display:flex;align-items:center;gap:9px;min-width:0}
+.job-name .txt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ver{flex:none;font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--mut);background:rgba(255,255,255,.06);border:1px solid var(--line);padding:1px 7px;border-radius:6px}
+.job-sub{margin-top:3px;font-size:12.5px;color:var(--faint);display:flex;align-items:center;gap:8px;flex-wrap:nowrap;white-space:nowrap;overflow:hidden}
+.job-sub>span{flex:none}
+.job-sub .dirpath{font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis}
+.badge{flex:none;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:5px 11px;border-radius:999px;letter-spacing:.01em}
+.badge .bdot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.badge.b-active{color:var(--a1);background:rgba(var(--glow),.14)}
+.badge.b-active .bdot{animation:blink calc(1.4s / var(--motion,1)) ease-in-out infinite}
+@keyframes blink{50%{opacity:.25}}
+.badge.b-waiting{color:var(--s-waiting);background:rgba(56,189,248,.13)}
+.badge.b-paused{color:var(--s-paused);background:rgba(245,177,76,.14)}
+.badge.b-complete{color:var(--s-complete);background:rgba(52,224,161,.14)}
+.badge.b-error{color:var(--s-error);background:rgba(255,93,122,.14)}
+.badge.b-canceled{color:var(--s-canceled);background:rgba(113,120,145,.14)}
+.badge.tuck{transition:opacity .2s,transform .2s}
+.job-card:hover .badge.tuck,.job-card:focus-within .badge.tuck{opacity:0;transform:translateX(8px)}
+
+.prog-wrap{margin-top:14px}
+.track{position:relative;height:7px;border-radius:999px;background:rgba(255,255,255,.05);overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,.4)}
+.fill{position:absolute;inset:0 auto 0 0;border-radius:999px;background:var(--accent-grad);transition:width .7s cubic-bezier(.4,0,.2,1);box-shadow:0 0 14px rgba(var(--glow),.55)}
+.fill::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 20%,rgba(255,255,255,.55) 50%,transparent 80%);background-size:220% 100%;animation:shimmer calc(1.6s / var(--motion,1)) linear infinite}
+@keyframes shimmer{to{background-position:-220% 0}}
+.fill .crest{position:absolute;right:-2px;top:0;bottom:0;width:14px;border-radius:999px;background:radial-gradient(circle at 50% 50%,rgba(255,255,255,.9),transparent 70%);filter:blur(2px)}
+.fill.s-paused{background:var(--s-paused);box-shadow:0 0 12px rgba(245,177,76,.5)}
+.fill.s-paused::after,.fill.s-canceled::after,.fill.s-error::after{animation:none;opacity:0}
+.fill.s-complete{background:linear-gradient(90deg,#2bd496,var(--s-complete));box-shadow:0 0 14px rgba(52,224,161,.55)}
+.fill.s-complete::after{animation:none;opacity:0}
+.fill.s-error{background:var(--s-error)}
+.fill.s-canceled{background:var(--s-canceled);box-shadow:none}
+.fill.s-waiting{background:var(--s-waiting)}
+.prog-meta{margin-top:11px;display:flex;align-items:center;gap:18px;font-size:13px;flex-wrap:nowrap;white-space:nowrap;overflow:hidden}
+.prog-meta .pm:not(.pct){overflow:hidden;text-overflow:ellipsis}
+.pm{display:inline-flex;align-items:center;gap:6px;color:var(--mut)}
+.pm svg{color:var(--faint)}
+.pm b{font-family:var(--font-mono);font-weight:600;color:var(--fg)}
+.pm.speed b{color:var(--a3)}
+.pm.pct{margin-left:auto}
+.pm.pct b{font-family:var(--font-display);font-size:16px;color:var(--fg)}
+.pm .err-txt,.pm.err-txt{color:var(--s-error)}
+
+.quick{position:absolute;top:14px;right:16px;display:flex;gap:7px;opacity:0;transform:translateY(-6px) scale(.94);transition:opacity .26s,transform .26s cubic-bezier(.34,1.4,.5,1);pointer-events:none}
+.job-card:hover .quick,.job-card:focus-within .quick{opacity:1;transform:none;pointer-events:auto}
+.qbtn{width:34px;height:34px;border-radius:10px;cursor:pointer;background:rgba(20,22,32,.7);border:1px solid var(--line-strong);color:var(--mut);display:grid;place-items:center;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);transition:all .2s cubic-bezier(.34,1.4,.5,1)}
+.qbtn:hover{color:#fff;transform:translateY(-2px) scale(1.06);border-color:rgba(var(--glow),.6);background:rgba(var(--glow),.25);box-shadow:0 6px 16px rgba(var(--glow),.35)}
+.qbtn.danger:hover{border-color:rgba(255,93,122,.6);background:rgba(255,93,122,.22);box-shadow:0 6px 16px rgba(255,93,122,.3)}
+.qbtn.go:hover{border-color:rgba(52,224,161,.6);background:rgba(52,224,161,.22);box-shadow:0 6px 16px rgba(52,224,161,.3)}
+
+.empty{text-align:center;padding:70px 20px 40px}
+.empty-art{position:relative;width:150px;height:150px;margin:0 auto 26px}
+.empty-orb{position:absolute;inset:32px;border-radius:50%;background:var(--accent-grad);display:grid;place-items:center;color:#fff;box-shadow:0 14px 50px rgba(var(--glow),.5),inset 0 2px 0 rgba(255,255,255,.4);animation:float calc(4s / var(--motion,1)) ease-in-out infinite}
+.empty-orb svg{animation:bob calc(2.4s / var(--motion,1)) ease-in-out infinite}
+@keyframes bob{50%{transform:translateY(3px)}}
+@keyframes float{50%{transform:translateY(-10px)}}
+.empty-ring{position:absolute;inset:0;border-radius:50%;border:1.5px solid rgba(var(--glow),.35);animation:ripple calc(3s / var(--motion,1)) ease-out infinite}
+.empty-ring.r2{animation-delay:calc(1.5s / var(--motion,1))}
+@keyframes ripple{0%{transform:scale(.5);opacity:.8}100%{transform:scale(1.25);opacity:0}}
+.empty h3{font-family:var(--font-display);font-size:21px;font-weight:700;margin:0 0 8px}
+.empty p{color:var(--mut);font-size:14.5px;margin:0 auto;max-width:360px;line-height:1.6}
+.empty .hint{margin-top:18px;display:inline-flex;gap:8px;align-items:center;font-family:var(--font-mono);font-size:12.5px;color:var(--faint);border:1px dashed var(--line-strong);padding:8px 14px;border-radius:10px;white-space:nowrap}
+
+.footer-bar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:22px;padding-top:16px;border-top:1px solid var(--line);white-space:nowrap}
+.ghost-btn{background:transparent;border:1px solid var(--line);color:var(--mut);border-radius:10px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font-body);transition:all .22s;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;flex:none}
+.ghost-btn:hover{color:var(--fg);border-color:var(--line-strong);background:var(--glass)}
+
+.toast-host{position:fixed;right:26px;bottom:26px;z-index:50;display:flex;flex-direction:column;gap:12px;align-items:flex-end}
+.toast{position:relative;overflow:hidden;display:flex;align-items:center;gap:13px;min-width:290px;max-width:380px;background:rgba(18,20,30,.72);border:1px solid var(--line-strong);backdrop-filter:blur(22px) saturate(140%);-webkit-backdrop-filter:blur(22px) saturate(140%);border-radius:16px;padding:14px 16px;box-shadow:0 18px 50px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.08);animation:toastIn .55s cubic-bezier(.34,1.56,.64,1) both}
+.toast.out{animation:toastOut .4s cubic-bezier(.4,0,1,1) forwards}
+@keyframes toastIn{from{opacity:0;transform:translateX(60px) scale(.85)}to{opacity:1;transform:none}}
+@keyframes toastOut{to{opacity:0;transform:translateX(40px) scale(.9)}}
+.toast-ico{flex:none;width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:rgba(52,224,161,.16);color:var(--s-complete);border:1px solid rgba(52,224,161,.3)}
+.toast-ico.err{background:rgba(255,93,122,.16);color:var(--s-error);border-color:rgba(255,93,122,.3)}
+.toast-body{flex:1;min-width:0}
+.toast-title{font-weight:700;font-size:13.5px}
+.toast-desc{font-size:12.5px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.toast-prog{position:absolute;left:0;bottom:0;height:2.5px;background:var(--accent-grad);border-radius:999px;animation:toastBar 4s linear forwards}
+@keyframes toastBar{from{width:100%}to{width:0}}
+
+@media (prefers-reduced-motion:reduce){*{animation-duration:.001ms !important;animation-iteration-count:1 !important}}
+@media (max-width:880px){.jobs.grid{grid-template-columns:1fr}.wrap{padding:20px 16px 70px}}
 </style>
 </head>
 <body>
-<div id="app" class="wrap" v-cloak>
-  <header>
-    <h1>⬇ HE 下载中心</h1>
-    <span class="pill"><span class="dot" :class="health.ok?'ok':'bad'"></span>
-      <span v-if="health.ok">aria2 {{ health.aria2 }}</span><span v-else>引擎离线</span></span>
-    <div class="grow"></div>
-    <span class="pill">速度 <b>{{ fmtSpeed(totalSpeed) }}</b></span>
-    <span class="pill">活动 <b>{{ activeCount }}</b> / {{ jobs.length }}</span>
-  </header>
-
-  <div class="card">
-    <div class="addrow">
-      <input class="src" v-model="form.source" placeholder="直链 URL 或 magnet:?xt=… 链接" @keyup.enter="addJob">
-      <input class="sm" v-model="form.dest_dir" placeholder="子目录(可选)">
-      <input class="sm" v-model="form.filename" placeholder="文件名(可选)">
-      <button class="primary" @click="addJob">添加下载</button>
-    </div>
-    <p class="err" v-if="err">{{ err }}</p>
-    <details>
-      <summary>鉴权 token（仅当后端设了 GATEWAY_API_TOKEN 时需要）</summary>
-      <div class="toks">
-        <input class="src" type="password" v-model="token" placeholder="Bearer token，留空=无鉴权">
-        <button class="mini" @click="saveToken">保存并重连</button>
+<div id="app" class="app-shell variant-pulse" v-cloak>
+  <div class="aurora-bg"></div>
+  <div class="grain"></div>
+  <div class="wrap">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark"><span v-html="svg('arrowDown',22)"></span></div>
+        <div><div class="brand-title">HE 下载中心</div><div class="brand-sub">Download Center</div></div>
       </div>
-    </details>
+      <div class="spacer"></div>
+      <span class="stat-pill"><span class="live-dot" :class="{bad:!health.ok}"></span>{{ health.ok ? 'aria2' : '引擎离线' }}<b v-if="health.ok">{{ health.aria2 }}</b></span>
+      <span class="stat-pill"><span class="ico"><span v-html="svg('bolt',15)"></span></span>实时 <b>{{ fmtSpeed(totalSpeed) }}</b></span>
+      <span class="stat-pill"><span class="ico"><span v-html="svg('server',15)"></span></span>活动 <b>{{ activeCount }}</b> / {{ jobs.length }}</span>
+    </header>
+
+    <div class="add-card">
+      <span class="lead"><span v-html="svg('plus',20)"></span></span>
+      <input class="add-input" v-model="src" placeholder="粘贴直链 URL 或 magnet:?xt=… 磁力链接" @keydown.enter="fireAdd">
+      <button class="add-btn" :class="{morph: addPhase!=='idle'}" @click="fireAdd">
+        <span class="label-swap"><span v-html="svg('plus',18)"></span> 添加下载</span>
+        <span class="morph-ico">
+          <svg v-if="addPhase==='morph'" class="ring" width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="rgba(255,255,255,.3)" stroke-width="2.5"/><path d="M21 12a9 9 0 0 0-9-9" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg>
+          <span v-if="addPhase==='done'" v-html="svg('check',20)"></span>
+        </span>
+      </button>
+    </div>
+
+    <div class="toolbar">
+      <div class="seg" ref="segEl">
+        <div class="seg-ind" :style="{left:ind.left+'px',width:ind.width+'px',opacity:ind.ready?1:0}"></div>
+        <button v-for="t in tabsWithCount" :key="t.id" class="seg-btn" :class="{on:tab===t.id}" @click="tab=t.id">{{ t.label }}<span class="cnt">{{ t.count }}</span></button>
+      </div>
+      <div class="chips">
+        <button v-for="c in typeChips" :key="c.id" class="chip" :class="{on:type===c.id}" @click="type=c.id">
+          <span v-if="c.id!=='all'" v-html="svg(c.id,15)"></span>{{ c.label }}
+        </button>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <label class="search"><span v-html="svg('search',17)"></span><input v-model="query" placeholder="搜索任务名称…"></label>
+      <div class="spacer"></div>
+      <div class="view-toggle">
+        <button :class="{on:view==='list'}" @click="view='list'" title="列表"><span v-html="svg('list',18)"></span></button>
+        <button :class="{on:view==='grid'}" @click="view='grid'" title="网格"><span v-html="svg('grid',18)"></span></button>
+      </div>
+    </div>
+
+    <div class="empty" v-if="!filtered.length">
+      <div class="empty-art"><div class="empty-ring"></div><div class="empty-ring r2"></div><div class="empty-orb"><span v-html="svg('arrowDown',44)"></span></div></div>
+      <h3>{{ filterLabel ? '没有「'+filterLabel+'」的任务' : '下载队列是空的' }}</h3>
+      <p>{{ filterLabel ? '换个筛选条件，或粘贴一个新链接开始下载。' : '粘贴一个直链 URL 或 magnet 磁力链接，HE 会自动接管下载、续传与入库。' }}</p>
+      <div class="hint"><span v-html="svg('spark',14)"></span> 试试 https://… 或 magnet:?xt=…</div>
+    </div>
+
+    <div v-else class="jobs" :class="{grid:view==='grid',swapping}">
+      <div class="job-anim" v-for="(j,i) in filtered" :key="j.id" :style="{'--i':i}">
+        <div class="job-card" :class="'st-'+statusMeta(j.status).k" tabindex="0">
+          <div class="job-head">
+            <div class="kind-ico" :style="{'--kh':kindHue(j)}"><span v-html="svg(kindOf(j),24)"></span></div>
+            <div class="job-meta">
+              <div class="job-name"><span class="txt">{{ j.name || j.id }}</span><span class="ver" v-if="j.version">{{ j.version }}</span></div>
+              <div class="job-sub">
+                <span>{{ kindLabel(j) }}</span><span>·</span><span class="dirpath">{{ j.dir }}</span>
+                <template v-if="kindOf(j)==='magnet' && j.seeds!=null"><span>·</span><span>{{ j.seeds }} 种子 / {{ j.peers }} 连接</span></template>
+                <span>·</span><span>{{ fmtAgo(j.created_at) }}</span>
+              </div>
+            </div>
+            <span class="badge tuck" :class="'b-'+statusMeta(j.status).k"><span class="bdot"></span>{{ statusMeta(j.status).t }}</span>
+          </div>
+
+          <div class="quick">
+            <button class="qbtn" v-if="canPause(j)" title="暂停" @click="action(j.id,'pause')"><span v-html="svg('pause',16)"></span></button>
+            <button class="qbtn" v-if="j.status==='paused'" title="继续" @click="action(j.id,'resume')"><span v-html="svg('play',16)"></span></button>
+            <button class="qbtn danger" v-if="canPause(j)||j.status==='paused'" title="取消" @click="action(j.id,'cancel')"><span v-html="svg('cancel',16)"></span></button>
+            <button class="qbtn" v-if="j.status==='error'||j.status==='canceled'" title="重试" @click="action(j.id,'retry')"><span v-html="svg('retry',16)"></span></button>
+            <button class="qbtn go" v-if="j.status==='complete'" title="文件位置" @click="action(j.id,'open')"><span v-html="svg('folder',16)"></span></button>
+            <button class="qbtn danger" v-if="isTerminal(j)" title="删除记录" @click="action(j.id,'delete')"><span v-html="svg('trash',16)"></span></button>
+          </div>
+
+          <div class="prog-wrap">
+            <div class="track"><div class="fill" :class="'s-'+statusMeta(j.status).k" :style="{width:fillW(j)+'%'}"><span class="crest" v-if="j.status==='active'"></span></div></div>
+            <div class="prog-meta">
+              <span class="pm"><span v-html="svg('arrowDown',14)"></span><b>{{ fmtBytes(j.completed_bytes) }}</b> / {{ j.total_bytes ? fmtBytes(j.total_bytes) : '?' }}</span>
+              <template v-if="j.status==='active'">
+                <span class="pm speed"><span v-html="svg('gauge',14)"></span><b>{{ fmtSpeed(j.download_speed) }}</b></span>
+                <span class="pm"><span v-html="svg('clock',14)"></span><b>{{ fmtEta(j.total_bytes-j.completed_bytes, j.download_speed) }}</b></span>
+              </template>
+              <span class="pm" v-else-if="j.status==='paused'">已暂停 · 剩余 {{ fmtBytes(j.total_bytes-j.completed_bytes) }}</span>
+              <span class="pm err-txt" v-else-if="j.status==='error'" :title="j.error">⚠ {{ j.error }}</span>
+              <span class="pm" v-else-if="j.status==='canceled'">已取消</span>
+              <span class="pm" v-else-if="j.status==='complete'"><span v-html="svg('check',14)"></span>已保存到 {{ j.dir }}</span>
+              <span class="pm pct"><b>{{ round(j.progress) }}%</b></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer-bar" v-if="hasTerminal">
+      <span style="color:var(--faint);font-size:13px">共 {{ jobs.length }} 个任务 · {{ completeCount }} 个已完成</span>
+      <button class="ghost-btn" @click="clearDone"><span v-html="svg('trash',15)"></span> 清除已结束</button>
+    </div>
   </div>
 
-  <div v-if="!jobs.length" class="empty">还没有任务，粘贴一个链接开始下载吧。</div>
-
-  <div class="card job" v-for="j in jobs" :key="j.id">
-    <div class="top">
-      <span class="name">{{ j.name || j.source || j.id }}</span>
-      <span class="badge" :style="{background:statusColor(j.status)}">{{ statusText(j.status) }}</span>
-    </div>
-    <div class="bar"><i :class="j.status" :style="{width: j.progress + '%'}"></i></div>
-    <div class="meta">
-      <span>{{ j.progress }}%</span>
-      <span>{{ fmtBytes(j.completed_bytes) }} / {{ j.total_bytes ? fmtBytes(j.total_bytes) : '?' }}</span>
-      <span v-if="j.status==='active'">{{ fmtSpeed(j.download_speed) }}</span>
-      <span class="muted" v-if="j.error">⚠ {{ j.error }}</span>
-    </div>
-    <div class="acts">
-      <button class="mini" v-if="['active','waiting'].includes(j.status)" @click="action(j.id,'pause')">暂停</button>
-      <button class="mini" v-if="j.status==='paused'" @click="action(j.id,'resume')">继续</button>
-      <button class="mini" v-if="['active','waiting','paused'].includes(j.status)" @click="action(j.id,'cancel')">取消</button>
-      <button class="mini" v-if="['error','canceled'].includes(j.status)" @click="action(j.id,'retry')">重试</button>
-      <button class="mini" @click="del(j.id)">删除</button>
+  <div class="toast-host">
+    <div class="toast" :class="{out:t.out}" v-for="t in toasts" :key="t.id">
+      <div class="toast-ico" :class="{err:t.kind==='error'}"><span v-html="svg(t.kind==='error'?'cancel':'check',20)"></span></div>
+      <div class="toast-body"><div class="toast-title">{{ t.title }}</div><div class="toast-desc">{{ t.desc }}</div></div>
+      <button class="toast-act" v-if="t.actionLabel" @click="t.out=true">{{ t.actionLabel }}</button>
+      <div class="toast-prog"></div>
     </div>
   </div>
 </div>
 
 <script src="/static/vue.global.prod.js"></script>
 <script>
-const { createApp, ref, reactive, computed, onMounted } = Vue
+const { createApp, ref, reactive, computed, onMounted, watch, nextTick } = Vue
+
+const ICONS = {
+  app:'<rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/>',
+  doc:'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/>',
+  video:'<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M10 9.2v5.6l5-2.8z" fill="currentColor" stroke="none"/>',
+  zip:'<path d="M5 4h14a1 1 0 0 1 1 1v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a1 1 0 0 1 1-1z"/><path d="M10 4v2M10 8v2M10 12v2"/><rect x="8.5" y="14" width="3" height="4" rx="1"/>',
+  magnet:'<path d="M6 4v7a6 6 0 0 0 12 0V4"/><path d="M4 4h4v3H4zM16 4h4v3h-4z"/>',
+  pause:'<rect x="7" y="5" width="3.4" height="14" rx="1.2" fill="currentColor" stroke="none"/><rect x="13.6" y="5" width="3.4" height="14" rx="1.2" fill="currentColor" stroke="none"/>',
+  play:'<path d="M7 5.5v13l11-6.5z" fill="currentColor" stroke="none"/>',
+  cancel:'<path d="M6 6l12 12M18 6L6 18"/>',
+  retry:'<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v4h-4"/>',
+  trash:'<path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/>',
+  folder:'<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  check:'<path d="M5 12.5l4.5 4.5L19 7"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  bolt:'<path d="M13 2 4 14h7l-1 8 9-12h-7z" fill="currentColor" stroke="none"/>',
+  list:'<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
+  grid:'<rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>',
+  gauge:'<path d="M12 14 16 9"/><circle cx="12" cy="13" r="9"/><path d="M5 13h1M18 13h1M12 5v1"/>',
+  arrowDown:'<path d="M12 4v14M6 12l6 6 6-6"/>',
+  spark:'<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18"/>',
+  server:'<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
+}
+const KINDS = { app:{label:'软件',hue:222}, doc:{label:'文档',hue:200}, video:{label:'视频',hue:280}, zip:{label:'压缩',hue:38}, magnet:{label:'磁力',hue:160} }
+const STATUS = { active:{t:'下载中',k:'active'}, waiting:{t:'等待',k:'waiting'}, pending:{t:'排队',k:'waiting'}, paused:{t:'已暂停',k:'paused'}, complete:{t:'已完成',k:'complete'}, error:{t:'失败',k:'error'}, canceled:{t:'已取消',k:'canceled'} }
+const ACTIVE = ['active','waiting','pending']
+const TERMINAL = ['complete','error','canceled']
+const TABS = [
+  {id:'all',label:'全部',m:()=>true},
+  {id:'active',label:'下载中',m:j=>ACTIVE.includes(j.status)},
+  {id:'paused',label:'已暂停',m:j=>j.status==='paused'},
+  {id:'complete',label:'已完成',m:j=>j.status==='complete'},
+  {id:'failed',label:'失败',m:j=>['error','canceled'].includes(j.status)},
+]
+
 createApp({
   setup() {
     const jobs = ref([])
     const health = ref({ ok:false, aria2:'' })
+    const tab = ref('all'), type = ref('all'), query = ref(''), view = ref('list')
+    const src = ref(''), addPhase = ref('idle')
     const token = ref(localStorage.getItem('he_dl_token') || '')
-    const form = reactive({ source:'', filename:'', dest_dir:'' })
-    const err = ref('')
-    let es = null, pollTimer = null
+    const toasts = ref([])
+    const swapping = ref(false)
+    const segEl = ref(null)
+    const ind = reactive({ left:4, width:0, ready:false })
 
+    const typeChips = [
+      {id:'all',label:'全部'},{id:'app',label:'软件'},{id:'doc',label:'文档'},
+      {id:'video',label:'视频'},{id:'zip',label:'压缩'},{id:'magnet',label:'磁力'},
+    ]
+
+    // ---- 工具 ----
+    const svg = (name, size=22) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]||''}</svg>`
+    const round = n => Math.round(n || 0)
+    const fmtBytes = (n) => { n=n||0; if(n<1024) return n.toFixed(0)+' B'; const u=['KB','MB','GB','TB']; let i=-1; do{n/=1024;i++}while(n>=1024&&i<u.length-1); const d=n<10?2:n<100?1:0; return n.toFixed(d)+' '+u[i] }
+    const fmtSpeed = (n) => fmtBytes(n)+'/s'
+    const fmtEta = (remain, speed) => { if(!speed||speed<=0) return '—'; let s=Math.round(remain/speed); if(s<1) return '即将完成'; if(s<60) return s+' 秒'; if(s<3600) return Math.floor(s/60)+' 分 '+(s%60)+' 秒'; const h=Math.floor(s/3600); return h+' 小时 '+Math.floor((s%3600)/60)+' 分' }
+    const fmtAgo = (ts) => { const d=Math.max(0, Date.now()/1000-(ts||0)); if(d<60) return '刚刚'; if(d<3600) return Math.floor(d/60)+' 分钟前'; if(d<86400) return Math.floor(d/3600)+' 小时前'; return Math.floor(d/86400)+' 天前' }
+    const statusMeta = (s) => STATUS[s] || { t:s, k:'canceled' }
+    const kindOf = (j) => { if(j.type==='magnet') return 'magnet'; const n=(j.name||'').toLowerCase(); if(/\.(mp4|mkv|mov|webm)/.test(n)) return 'video'; if(/\.(pdf|epub|docx?|txt|md)/.test(n)) return 'doc'; if(/\.(zip|tar|gz|7z|rar)/.test(n)) return 'zip'; return 'app' }
+    const kindLabel = (j) => (KINDS[kindOf(j)]||{}).label
+    const kindHue = (j) => (KINDS[kindOf(j)]||{}).hue ?? 222
+    const canPause = (j) => ACTIVE.includes(j.status)
+    const isTerminal = (j) => TERMINAL.includes(j.status)
+    const fillW = (j) => j.status==='complete' ? 100 : Math.min(100, Math.max(0, j.progress||0))
+
+    // ---- API ----
     const authHeaders = () => token.value ? { 'Authorization':'Bearer '+token.value } : {}
-
     async function api(path, opts={}) {
       const res = await fetch(path, { ...opts, headers:{ ...(opts.headers||{}), ...authHeaders() } })
-      if (!res.ok) {
-        let d=''; try{ d=(await res.json()).detail }catch(_){}
-        throw new Error(d || ('HTTP '+res.status))
-      }
+      if (!res.ok) { let d=''; try{ d=(await res.json()).detail }catch(_){}; throw new Error(d || ('HTTP '+res.status)) }
       try { return await res.json() } catch(_) { return null }
     }
 
-    async function refreshHealth() {
-      try { health.value = { ok:true, aria2:(await api('/health')).aria2 } }
-      catch { health.value = { ok:false, aria2:'' } }
+    // ---- 数据流 ----
+    let prevStatus = {}
+    function setJobs(arr) {
+      if (!Array.isArray(arr)) return
+      for (const j of arr) { if (prevStatus[j.id] && prevStatus[j.id] !== 'complete' && j.status === 'complete') pushToast({ kind:'success', title:'下载完成', desc:j.name }) }
+      prevStatus = Object.fromEntries(arr.map(j => [j.id, j.status]))
+      jobs.value = arr
     }
-    async function pollJobs() { try { jobs.value = await api('/jobs') } catch(_){} }
-
+    let es=null, pollTimer=null
     function connect() {
       if (es) es.close()
       const url = '/events' + (token.value ? '?token='+encodeURIComponent(token.value) : '')
-      try {
-        es = new EventSource(url)
-        es.onmessage = e => { jobs.value = JSON.parse(e.data) }
-        es.onerror = () => { /* EventSource 自动重连；同时兜底轮询 */ }
-      } catch(_) {}
+      try { es = new EventSource(url); es.onmessage = e => setJobs(JSON.parse(e.data)) } catch(_){}
       if (pollTimer) clearInterval(pollTimer)
-      pollTimer = setInterval(pollJobs, 2000)   // SSE 断时的兜底
+      pollTimer = setInterval(pollJobs, 2000); pollJobs()
+    }
+    async function pollJobs() { try { setJobs(await api('/jobs')) } catch(_){} }
+    async function refreshHealth() { try { health.value = { ok:true, aria2:(await api('/health')).aria2 } } catch { health.value = { ok:false, aria2:'' } } }
+
+    // ---- 操作 ----
+    function fireAdd() {
+      if (!src.value.trim() || addPhase.value !== 'idle') return
+      addPhase.value = 'morph'
+      setTimeout(async () => { await doAdd(); addPhase.value = 'done' }, 650)
+      setTimeout(() => { addPhase.value = 'idle' }, 1100)
+    }
+    async function doAdd() {
+      const s = src.value.trim(); if (!s) return
+      const type = s.startsWith('magnet:') ? 'magnet' : 'url'
+      try { await api('/jobs', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ type, source:s }) }); pushToast({ kind:'success', title:'已加入下载队列', desc:s }); src.value=''; pollJobs() }
+      catch(e) { pushToast({ kind:'error', title:'添加失败', desc:String(e.message||e) }) }
+    }
+    async function action(id, act) {
+      const j = jobs.value.find(x => x.id === id)
+      if (act === 'open') { pushToast({ kind:'success', title:'文件位置', desc: j ? j.dir : '' }); return }
+      try {
+        if (act === 'delete') await api(`/jobs/${id}`, { method:'DELETE' })
+        else await api(`/jobs/${id}/${act}`, { method:'POST' })
+        pollJobs()
+      } catch(e) { pushToast({ kind:'error', title:'操作失败', desc:String(e.message||e) }) }
+    }
+    async function clearDone() {
+      const terms = jobs.value.filter(isTerminal)
+      await Promise.all(terms.map(j => api(`/jobs/${j.id}`, { method:'DELETE' }).catch(()=>{})))
       pollJobs()
     }
-
-    async function addJob() {
-      err.value=''
-      const src = form.source.trim()
-      if (!src) return
-      const type = src.startsWith('magnet:') ? 'magnet' : 'url'
-      try {
-        await api('/jobs', { method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ type, source:src, filename:form.filename||null, dest_dir:form.dest_dir||null }) })
-        form.source=''; form.filename=''
-        pollJobs()
-      } catch(e) { err.value = String(e.message||e) }
+    function pushToast(o) {
+      const id = Math.random().toString(36).slice(2)
+      const t = reactive({ id, out:false, ...o })
+      toasts.value.push(t)
+      setTimeout(() => { t.out = true }, 3600)
+      setTimeout(() => { toasts.value = toasts.value.filter(x => x.id !== id) }, 4050)
     }
 
-    const action = (id, act) => api(`/jobs/${id}/${act}`, {method:'POST'}).then(pollJobs).catch(e=>err.value=String(e.message||e))
-    const del = (id) => api(`/jobs/${id}`, {method:'DELETE'}).then(pollJobs).catch(e=>err.value=String(e.message||e))
-    function saveToken(){ localStorage.setItem('he_dl_token', token.value); connect(); refreshHealth() }
+    // ---- 计算 ----
+    const tabMatch = (j) => (TABS.find(t => t.id === tab.value) || TABS[0]).m(j)
+    const filtered = computed(() => jobs.value.filter(j => tabMatch(j) && (type.value==='all' || kindOf(j)===type.value) && (!query.value.trim() || (j.name||'').toLowerCase().includes(query.value.trim().toLowerCase()))))
+    const tabsWithCount = computed(() => TABS.map(t => ({ ...t, count: jobs.value.filter(t.m).length })))
+    const totalSpeed = computed(() => jobs.value.reduce((a,j) => a + (j.status==='active' ? (j.download_speed||0) : 0), 0))
+    const activeCount = computed(() => jobs.value.filter(j => j.status==='active').length)
+    const completeCount = computed(() => jobs.value.filter(j => j.status==='complete').length)
+    const hasTerminal = computed(() => jobs.value.some(isTerminal))
+    const filterLabel = computed(() => { if (query.value.trim()) return query.value.trim(); if (type.value!=='all') return (typeChips.find(c=>c.id===type.value)||{}).label; if (tab.value!=='all') return (TABS.find(t=>t.id===tab.value)||{}).label; return '' })
 
-    const totalSpeed = computed(()=> jobs.value.reduce((a,j)=>a+(j.download_speed||0),0))
-    const activeCount = computed(()=> jobs.value.filter(j=>j.status==='active').length)
+    // ---- 段控指示器 + 入场重放 ----
+    function measureSeg() { nextTick(() => { const c=segEl.value; if(!c) return; const on=c.querySelector('.seg-btn.on'); if(on){ ind.left=on.offsetLeft; ind.width=on.offsetWidth; ind.ready=true } }) }
+    watch([tab, () => tabsWithCount.value.map(t=>t.count).join(',')], measureSeg)
+    watch([tab, type, query], () => { swapping.value=false; requestAnimationFrame(() => requestAnimationFrame(() => { swapping.value=true })) })
+    window.addEventListener('resize', measureSeg)
 
-    const fmtBytes = n => {
-      n = n||0; if (n<1024) return n+' B'
-      const u=['KB','MB','GB','TB']; let i=-1
-      do { n/=1024; i++ } while (n>=1024 && i<u.length-1)
-      return n.toFixed(n<10?2:1)+' '+u[i]
-    }
-    const fmtSpeed = n => fmtBytes(n)+'/s'
-    const statusText = s => ({pending:'排队',active:'下载中',waiting:'等待',paused:'已暂停',complete:'已完成',error:'失败',canceled:'已取消'}[s]||s)
-    const statusColor = s => ({active:'var(--green)',waiting:'var(--blue)',paused:'var(--orange)',complete:'var(--teal)',error:'var(--red)',canceled:'var(--gray)',pending:'var(--gray)'}[s]||'var(--gray)')
+    onMounted(() => { refreshHealth(); connect(); setInterval(refreshHealth, 5000); measureSeg() })
 
-    onMounted(()=>{ refreshHealth(); connect(); setInterval(refreshHealth, 5000) })
-    return { jobs, health, token, form, err, addJob, action, del, saveToken,
-             totalSpeed, activeCount, fmtBytes, fmtSpeed, statusText, statusColor }
+    return { jobs, health, tab, type, query, view, src, addPhase, toasts, swapping, segEl, ind, typeChips,
+      tabsWithCount, filtered, totalSpeed, activeCount, completeCount, hasTerminal, filterLabel,
+      svg, round, fmtBytes, fmtSpeed, fmtEta, fmtAgo, statusMeta, kindOf, kindLabel, kindHue, canPause, isTerminal, fillW,
+      fireAdd, action, clearDone }
   }
 }).mount('#app')
 </script>
