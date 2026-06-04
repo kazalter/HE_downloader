@@ -38,8 +38,11 @@ services:
       - ARIA2_RPC_SECRET=${ARIA2_RPC_SECRET}
       - GATEWAY_API_TOKEN=${GATEWAY_API_TOKEN:-}
       - DOWNLOAD_DIR=/downloads
+      - GATEWAY_DB_PATH=/data/gateway.db
     volumes:
       - ${DOWNLOAD_DIR:-./downloads}:/downloads
+      # 任务库（SQLite）持久化：重启不丢。
+      - ./data/gateway:/data
     ports:
       - "${GATEWAY_PORT:-8011}:8000"
     depends_on:

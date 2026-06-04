@@ -15,6 +15,8 @@ class JobCreate(BaseModel):
     dest_dir: Optional[str] = None
     filename: Optional[str] = Field(None, description="覆盖输出文件名（仅单文件直链有意义）")
     headers: Optional[dict[str, str]] = Field(None, description="透传给 aria2 的请求头，如 Cookie/Referer")
+    # 下完后回调的 URL（M5 才真正触发；M2 仅存档）。
+    callback_url: Optional[str] = None
 
 
 class JobFile(BaseModel):
@@ -24,9 +26,9 @@ class JobFile(BaseModel):
 
 
 class JobView(BaseModel):
-    id: str  # aria2 gid
+    id: str  # 稳定的 gateway job id（uuid），不随 aria2 重启/重试改变
     type: str
-    status: str  # active|waiting|paused|complete|error|removed
+    status: str  # pending|active|waiting|paused|complete|error|canceled
     name: str = ""
     total_bytes: int = 0
     completed_bytes: int = 0
@@ -34,6 +36,7 @@ class JobView(BaseModel):
     progress: float = 0.0  # 0~100
     dir: str = ""
     error: Optional[str] = None
+    created_at: float = 0.0
     files: list[JobFile] = []
 
 
