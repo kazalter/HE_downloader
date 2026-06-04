@@ -5,6 +5,9 @@
 /data/
 /downloads/
 
+# 面板的 Vue 运行时：构建时从 npmmirror 拉取，不入库
+gateway/app/static/vue.global.prod.js
+
 # python
 __pycache__/
 *.py[cod]

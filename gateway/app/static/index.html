@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HE 下载中心</title>
+<style>
+  :root{
+    --bg:#0f1115; --card:#181b22; --card2:#1f232c; --line:#2a2f3a;
+    --fg:#e6e9ef; --mut:#8b93a3; --acc:#4f8cff;
+    --green:#2ecc71; --blue:#4f8cff; --orange:#f5a623; --red:#ff5d5d; --gray:#6b7280; --teal:#26c6a8;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,Segoe UI,Roboto,"Microsoft YaHei",sans-serif}
+  [v-cloak]{display:none}
+  a{color:var(--acc)}
+  .wrap{max-width:920px;margin:0 auto;padding:18px}
+  header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+  header h1{font-size:18px;margin:0;font-weight:650}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px}
+  .dot.ok{background:var(--green)} .dot.bad{background:var(--red)}
+  .pill{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:4px 11px;color:var(--mut);font-size:12.5px}
+  .pill b{color:var(--fg)}
+  .grow{flex:1}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+  .addrow{display:flex;gap:8px;flex-wrap:wrap}
+  input{background:var(--card2);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:9px 11px;font-size:13.5px;outline:none}
+  input:focus{border-color:var(--acc)}
+  input.src{flex:1;min-width:240px}
+  input.sm{width:150px}
+  button{background:var(--card2);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:9px 14px;cursor:pointer;font-size:13.5px}
+  button:hover{border-color:var(--acc)}
+  button.primary{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
+  button.mini{padding:5px 10px;font-size:12.5px}
+  .err{color:var(--red);margin:8px 0 0;font-size:13px}
+  .muted{color:var(--mut)}
+  .job{display:flex;flex-direction:column;gap:8px}
+  .job .top{display:flex;align-items:center;gap:10px}
+  .job .name{font-weight:600;word-break:break-all;flex:1}
+  .badge{font-size:11.5px;padding:2px 9px;border-radius:20px;color:#fff;white-space:nowrap}
+  .bar{height:7px;background:var(--card2);border-radius:6px;overflow:hidden}
+  .bar>i{display:block;height:100%;background:var(--acc);transition:width .4s}
+  .bar>i.complete{background:var(--teal)} .bar>i.error{background:var(--red)} .bar>i.paused{background:var(--orange)}
+  .meta{display:flex;gap:14px;flex-wrap:wrap;color:var(--mut);font-size:12.5px}
+  .acts{display:flex;gap:6px;flex-wrap:wrap}
+  .empty{text-align:center;color:var(--mut);padding:34px}
+  .toks{display:flex;gap:8px;align-items:center;margin-top:6px}
+  details summary{cursor:pointer;color:var(--mut);font-size:12.5px}
+</style>
+</head>
+<body>
+<div id="app" class="wrap" v-cloak>
+  <header>
+    <h1>⬇ HE 下载中心</h1>
+    <span class="pill"><span class="dot" :class="health.ok?'ok':'bad'"></span>
+      <span v-if="health.ok">aria2 {{ health.aria2 }}</span><span v-else>引擎离线</span></span>
+    <div class="grow"></div>
+    <span class="pill">速度 <b>{{ fmtSpeed(totalSpeed) }}</b></span>
+    <span class="pill">活动 <b>{{ activeCount }}</b> / {{ jobs.length }}</span>
+  </header>
+
+  <div class="card">
+    <div class="addrow">
+      <input class="src" v-model="form.source" placeholder="直链 URL 或 magnet:?xt=… 链接" @keyup.enter="addJob">
+      <input class="sm" v-model="form.dest_dir" placeholder="子目录(可选)">
+      <input class="sm" v-model="form.filename" placeholder="文件名(可选)">
+      <button class="primary" @click="addJob">添加下载</button>
+    </div>
+    <p class="err" v-if="err">{{ err }}</p>
+    <details>
+      <summary>鉴权 token（仅当后端设了 GATEWAY_API_TOKEN 时需要）</summary>
+      <div class="toks">
+        <input class="src" type="password" v-model="token" placeholder="Bearer token，留空=无鉴权">
+        <button class="mini" @click="saveToken">保存并重连</button>
+      </div>
+    </details>
+  </div>
+
+  <div v-if="!jobs.length" class="empty">还没有任务，粘贴一个链接开始下载吧。</div>
+
+  <div class="card job" v-for="j in jobs" :key="j.id">
+    <div class="top">
+      <span class="name">{{ j.name || j.source || j.id }}</span>
+      <span class="badge" :style="{background:statusColor(j.status)}">{{ statusText(j.status) }}</span>
+    </div>
+    <div class="bar"><i :class="j.status" :style="{width: j.progress + '%'}"></i></div>
+    <div class="meta">
+      <span>{{ j.progress }}%</span>
+      <span>{{ fmtBytes(j.completed_bytes) }} / {{ j.total_bytes ? fmtBytes(j.total_bytes) : '?' }}</span>
+      <span v-if="j.status==='active'">{{ fmtSpeed(j.download_speed) }}</span>
+      <span class="muted" v-if="j.error">⚠ {{ j.error }}</span>
+    </div>
+    <div class="acts">
+      <button class="mini" v-if="['active','waiting'].includes(j.status)" @click="action(j.id,'pause')">暂停</button>
+      <button class="mini" v-if="j.status==='paused'" @click="action(j.id,'resume')">继续</button>
+      <button class="mini" v-if="['active','waiting','paused'].includes(j.status)" @click="action(j.id,'cancel')">取消</button>
+      <button class="mini" v-if="['error','canceled'].includes(j.status)" @click="action(j.id,'retry')">重试</button>
+      <button class="mini" @click="del(j.id)">删除</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/vue.global.prod.js"></script>
+<script>
+const { createApp, ref, reactive, computed, onMounted } = Vue
+createApp({
+  setup() {
+    const jobs = ref([])
+    const health = ref({ ok:false, aria2:'' })
+    const token = ref(localStorage.getItem('he_dl_token') || '')
+    const form = reactive({ source:'', filename:'', dest_dir:'' })
+    const err = ref('')
+    let es = null, pollTimer = null
+
+    const authHeaders = () => token.value ? { 'Authorization':'Bearer '+token.value } : {}
+
+    async function api(path, opts={}) {
+      const res = await fetch(path, { ...opts, headers:{ ...(opts.headers||{}), ...authHeaders() } })
+      if (!res.ok) {
+        let d=''; try{ d=(await res.json()).detail }catch(_){}
+        throw new Error(d || ('HTTP '+res.status))
+      }
+      try { return await res.json() } catch(_) { return null }
+    }
+
+    async function refreshHealth() {
+      try { health.value = { ok:true, aria2:(await api('/health')).aria2 } }
+      catch { health.value = { ok:false, aria2:'' } }
+    }
+    async function pollJobs() { try { jobs.value = await api('/jobs') } catch(_){} }
+
+    function connect() {
+      if (es) es.close()
+      const url = '/events' + (token.value ? '?token='+encodeURIComponent(token.value) : '')
+      try {
+        es = new EventSource(url)
+        es.onmessage = e => { jobs.value = JSON.parse(e.data) }
+        es.onerror = () => { /* EventSource 自动重连；同时兜底轮询 */ }
+      } catch(_) {}
+      if (pollTimer) clearInterval(pollTimer)
+      pollTimer = setInterval(pollJobs, 2000)   // SSE 断时的兜底
+      pollJobs()
+    }
+
+    async function addJob() {
+      err.value=''
+      const src = form.source.trim()
+      if (!src) return
+      const type = src.startsWith('magnet:') ? 'magnet' : 'url'
+      try {
+        await api('/jobs', { method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ type, source:src, filename:form.filename||null, dest_dir:form.dest_dir||null }) })
+        form.source=''; form.filename=''
+        pollJobs()
+      } catch(e) { err.value = String(e.message||e) }
+    }
+
+    const action = (id, act) => api(`/jobs/${id}/${act}`, {method:'POST'}).then(pollJobs).catch(e=>err.value=String(e.message||e))
+    const del = (id) => api(`/jobs/${id}`, {method:'DELETE'}).then(pollJobs).catch(e=>err.value=String(e.message||e))
+    function saveToken(){ localStorage.setItem('he_dl_token', token.value); connect(); refreshHealth() }
+
+    const totalSpeed = computed(()=> jobs.value.reduce((a,j)=>a+(j.download_speed||0),0))
+    const activeCount = computed(()=> jobs.value.filter(j=>j.status==='active').length)
+
+    const fmtBytes = n => {
+      n = n||0; if (n<1024) return n+' B'
+      const u=['KB','MB','GB','TB']; let i=-1
+      do { n/=1024; i++ } while (n>=1024 && i<u.length-1)
+      return n.toFixed(n<10?2:1)+' '+u[i]
+    }
+    const fmtSpeed = n => fmtBytes(n)+'/s'
+    const statusText = s => ({pending:'排队',active:'下载中',waiting:'等待',paused:'已暂停',complete:'已完成',error:'失败',canceled:'已取消'}[s]||s)
+    const statusColor = s => ({active:'var(--green)',waiting:'var(--blue)',paused:'var(--orange)',complete:'var(--teal)',error:'var(--red)',canceled:'var(--gray)',pending:'var(--gray)'}[s]||'var(--gray)')
+
+    onMounted(()=>{ refreshHealth(); connect(); setInterval(refreshHealth, 5000) })
+    return { jobs, health, token, form, err, addJob, action, del, saveToken,
+             totalSpeed, activeCount, fmtBytes, fmtSpeed, statusText, statusColor }
+  }
+}).mount('#app')
+</script>
+</body>
+</html>

@@ -163,6 +163,29 @@ def test_delete_removes_job(client):
     assert c.get(f"/jobs/{b['id']}").status_code == 404
 
 
+def test_panel_served_without_auth(monkeypatch):
+    # 即便设了 token，面板页 `/` 也必须可访问（否则没法加载页面输入 token）。
+    monkeypatch.setattr(main.settings, "gateway_api_token", "secret")
+    f = FakeAria2()
+    app.dependency_overrides[get_aria2] = lambda: f
+    with TestClient(app) as c:
+        r = c.get("/")
+        assert r.status_code == 200
+        assert "HE 下载中心" in r.text
+    app.dependency_overrides.clear()
+
+
+def test_sse_accepts_token_query(monkeypatch):
+    # EventSource 不能加请求头，靠 ?token= 鉴权。
+    monkeypatch.setattr(main.settings, "gateway_api_token", "secret")
+    f = FakeAria2()
+    app.dependency_overrides[get_aria2] = lambda: f
+    with TestClient(app) as c:
+        assert c.get("/jobs").status_code == 401
+        assert c.get("/jobs?token=secret").status_code == 200
+    app.dependency_overrides.clear()
+
+
 def test_auth_enforced(monkeypatch):
     monkeypatch.setattr(main.settings, "gateway_api_token", "secret")
     f = FakeAria2()

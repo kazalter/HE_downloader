@@ -11,6 +11,14 @@ RUN pip install --no-cache-dir --index-url ${PIP_INDEX_URL} -r requirements.txt
 
 COPY app ./app
 
+# Web 面板的 Vue 运行时：构建时从 npmmirror（国内快）拉到本地托管，运行时不依赖 CDN。
+ARG VUE_URL=https://registry.npmmirror.com/vue/3.5.13/files/dist/vue.global.prod.js
+RUN for i in 1 2 3 4 5; do \
+      python -c "import urllib.request; urllib.request.urlretrieve('${VUE_URL}', 'app/static/vue.global.prod.js')" && break; \
+      echo "retry vue download $i"; sleep 3; \
+    done; \
+    test -s app/static/vue.global.prod.js
+
 EXPOSE 8000
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

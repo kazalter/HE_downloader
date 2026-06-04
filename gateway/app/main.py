@@ -10,7 +10,8 @@ from typing import Optional
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from . import store
 from .aria2 import Aria2Client, Aria2Error
@@ -43,7 +44,16 @@ async def lifespan(app: FastAPI):
         await http.aclose()
 
 
-app = FastAPI(title="HE_downloader gateway", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="HE_downloader gateway", version="0.3.0", lifespan=lifespan)
+
+# Web 面板（静态文件由 gateway 顺带托管，无需 node 构建 / 额外容器）。
+_STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
+
+
+@app.get("/", include_in_schema=False)
+async def index():
+    return FileResponse(os.path.join(_STATIC_DIR, "index.html"))
 
 
 def get_aria2() -> Aria2Client:
@@ -51,13 +61,20 @@ def get_aria2() -> Aria2Client:
 
 
 # --- 鉴权（token 为空则放行） -----------------------------------------------
+# 同时接受 Authorization: Bearer 头 与 ?token= 查询参数 —— 后者给浏览器
+# EventSource 用（SSE 客户端无法自定义请求头）。面板页 `/` 与 /static 不鉴权，
+# 否则连加载页面输入 token 都做不到。
 
-async def require_auth(authorization: Optional[str] = Header(None)) -> None:
-    token = settings.gateway_api_token
-    if not token:
+async def require_auth(
+    authorization: Optional[str] = Header(None),
+    token: Optional[str] = None,
+) -> None:
+    secret = settings.gateway_api_token
+    if not secret:
         return
-    if authorization != f"Bearer {token}":
-        raise HTTPException(status_code=401, detail="缺少或无效的 Bearer token")
+    if authorization == f"Bearer {secret}" or token == secret:
+        return
+    raise HTTPException(status_code=401, detail="缺少或无效的 token")
 
 
 # --- aria2 选项 / 状态映射 ---------------------------------------------------
