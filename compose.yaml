@@ -1,0 +1,37 @@
+services:
+  aria2:
+    image: p3terx/aria2-pro
+    container_name: he_downloader_aria2
+    restart: unless-stopped
+    environment:
+      - RPC_SECRET=${ARIA2_RPC_SECRET}
+      - RPC_PORT=6800
+      - LISTEN_PORT=6888
+      - DISK_CACHE=64M
+      - UPDATE_TRACKERS=true
+      - TZ=${TZ:-Asia/Shanghai}
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+    volumes:
+      - ./data/aria2-config:/config
+      - ${DOWNLOAD_DIR:-./downloads}:/downloads
+    ports:
+      - "${ARIA2_RPC_PORT:-6800}:6800"
+      - "6888:6888"
+      - "6888:6888/udp"
+
+  gateway:
+    build: ./gateway
+    container_name: he_downloader_gateway
+    restart: unless-stopped
+    environment:
+      - ARIA2_RPC_URL=http://aria2:6800/jsonrpc
+      - ARIA2_RPC_SECRET=${ARIA2_RPC_SECRET}
+      - GATEWAY_API_TOKEN=${GATEWAY_API_TOKEN:-}
+      - DOWNLOAD_DIR=/downloads
+    volumes:
+      - ${DOWNLOAD_DIR:-./downloads}:/downloads
+    ports:
+      - "${GATEWAY_PORT:-8011}:8000"
+    depends_on:
+      - aria2

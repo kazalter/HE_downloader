@@ -1,0 +1,19 @@
+# secrets / runtime
+.env
+
+# aria2 + downloads runtime data (bind-mounted, never committed)
+/data/
+/downloads/
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# editor / os
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
