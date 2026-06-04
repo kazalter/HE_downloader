@@ -1,19 +1,26 @@
 services:
   aria2:
-    image: p3terx/aria2-pro
+    build: ./aria2
     container_name: he_downloader_aria2
     restart: unless-stopped
-    environment:
-      - RPC_SECRET=${ARIA2_RPC_SECRET}
-      - RPC_PORT=6800
-      - LISTEN_PORT=6888
-      - DISK_CACHE=64M
-      - UPDATE_TRACKERS=true
-      - TZ=${TZ:-Asia/Shanghai}
-      - PUID=${PUID:-1000}
-      - PGID=${PGID:-1000}
+    # RPC 参数显式注入；下完即停、不做种（seed-time=0）。
+    command:
+      - --enable-rpc
+      - --rpc-listen-all=true
+      - --rpc-allow-origin-all=true
+      - --rpc-listen-port=6800
+      - --rpc-secret=${ARIA2_RPC_SECRET}
+      - --dir=/downloads
+      - --continue=true
+      - --max-concurrent-downloads=3
+      - --disk-cache=64M
+      - --auto-file-renaming=false
+      - --allow-overwrite=false
+      - --listen-port=6888
+      - --dht-listen-port=6888
+      - --seed-time=0
+      - --bt-stop-timeout=120
     volumes:
-      - ./data/aria2-config:/config
       - ${DOWNLOAD_DIR:-./downloads}:/downloads
     ports:
       - "${ARIA2_RPC_PORT:-6800}:6800"
