@@ -223,8 +223,9 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:
 /* 从 HE 收藏导入 */
 .he-btn{display:inline-flex;align-items:center;gap:7px;background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur));border-radius:999px;padding:8px 14px;font-size:13px;font-weight:600;color:var(--mut);cursor:pointer;white-space:nowrap;transition:all .25s}
 .he-btn:hover{color:#fff;border-color:rgba(var(--glow),.5)}
-.he-backdrop{position:fixed;inset:0;z-index:60;background:rgba(4,6,12,.62);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:24px}
-.he-modal{width:100%;max-width:720px;max-height:84vh;display:flex;flex-direction:column;background:rgba(16,18,28,.94);border:1px solid var(--line-strong);border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,.6);overflow:hidden}
+.he-backdrop{position:fixed;inset:0;z-index:60;background:rgba(4,6,12,.82);display:flex;align-items:center;justify-content:center;padding:24px;contain:paint;transform:translateZ(0)}
+.he-modal{width:100%;max-width:720px;max-height:84vh;display:flex;flex-direction:column;background:rgba(16,18,28,.98);border:1px solid var(--line-strong);border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,.6);overflow:hidden;isolation:isolate;transform:translateZ(0)}
+.app-shell:has(.he-backdrop) .aurora-bg::after{animation-play-state:paused}
 .he-head{display:flex;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid var(--line)}
 .he-head h3{margin:0;font-family:var(--font-display);font-size:16px;font-weight:700}
 .he-seg{display:inline-flex;gap:2px;padding:3px;background:var(--glass);border:1px solid var(--line);border-radius:10px}
@@ -248,6 +249,35 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:
 .he-item .tag{flex:none;font-size:11px;color:var(--s-complete);font-family:var(--font-mono)}
 .he-foot{display:flex;align-items:center;gap:12px;padding:14px 18px;border-top:1px solid var(--line)}
 .he-empty{text-align:center;color:var(--mut);padding:30px;font-size:13.5px}
+.x-panel{flex:1;overflow:auto;padding:14px 18px 18px;display:flex;flex-direction:column;gap:13px}
+.x-card{border:1px solid var(--line);background:var(--glass);border-radius:13px;padding:13px 14px}
+.x-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.x-title{font-weight:800;font-size:13.5px;color:var(--fg)}
+.x-muted{font-size:12.5px;color:var(--mut);line-height:1.6}
+.x-mono{font-family:var(--font-mono);font-size:12px;color:var(--fg);word-break:break-all}
+.x-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.x-stat{border:1px solid var(--line);background:rgba(255,255,255,.035);border-radius:12px;padding:12px}
+.x-stat .lab{font-size:11.5px;color:var(--mut);font-weight:700}
+.x-stat .num{margin-top:4px;font-family:var(--font-display);font-size:24px;font-weight:800}
+.x-actions{display:flex;gap:10px;flex-wrap:wrap}
+.x-actions .ghost-btn{height:38px}
+.x-job{display:flex;flex-direction:column;gap:9px}
+.x-job-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.x-job-title{font-size:13.5px;font-weight:800}
+.x-job-msg{font-size:12.5px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.x-progress-line{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--mut)}
+.x-progress-line b{font-family:var(--font-mono);color:var(--fg)}
+.x-errors{max-height:120px;overflow:auto;border-top:1px solid var(--line);padding-top:8px;display:flex;flex-direction:column;gap:5px}
+.x-error{font-size:12px;color:var(--s-error);font-family:var(--font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:720px){.x-stats{grid-template-columns:repeat(2,1fr)}}
+.settings-body{padding:18px;display:flex;flex-direction:column;gap:12px}
+.settings-row{display:flex;flex-direction:column;gap:8px}
+.settings-row label{font-size:13px;color:var(--mut);font-weight:700}
+.settings-input{width:100%;background:var(--glass);border:1px solid var(--line);border-radius:11px;padding:10px 12px;color:var(--fg);outline:none;font-family:var(--font-mono);font-size:13px}
+.settings-input:focus{border-color:rgba(var(--glow),.5);box-shadow:0 0 0 4px rgba(var(--glow),.1)}
+.settings-help{font-size:12.5px;color:var(--faint);line-height:1.6}
+.settings-current{display:inline-flex;align-items:center;gap:7px;color:var(--mut);font-size:12.5px}
+.settings-current b{font-family:var(--font-mono);color:var(--fg);font-weight:600}
 </style>
 </head>
 <body>
@@ -264,6 +294,7 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:
       <span class="stat-pill"><span class="live-dot" :class="{bad:!health.ok}"></span>{{ health.ok ? 'aria2' : '引擎离线' }}<b v-if="health.ok">{{ health.aria2 }}</b></span>
       <span class="stat-pill"><span class="ico"><span v-html="svg('bolt',15)"></span></span>实时 <b>{{ fmtSpeed(totalSpeed) }}</b></span>
       <span class="stat-pill"><span class="ico"><span v-html="svg('server',15)"></span></span>活动 <b>{{ activeCount }}</b> / {{ jobs.length }}</span>
+      <button class="he-btn" @click="openSettings"><span v-html="svg('gear',15)"></span> 代理</button>
       <button class="he-btn" v-if="heAvailable" @click="openHe"><span v-html="svg('folder',15)"></span> HE 收藏</button>
     </header>
 
@@ -368,6 +399,30 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:
     </div>
   </div>
 
+  <div class="he-backdrop" v-if="settingsOpen" @click.self="settingsOpen=false">
+    <div class="he-modal" style="max-width:560px">
+      <div class="he-head">
+        <h3>下载代理</h3>
+        <button class="he-close" @click="settingsOpen=false">✕</button>
+      </div>
+      <div class="settings-body">
+        <div class="settings-row">
+          <label>aria2 代理地址</label>
+          <input class="settings-input" v-model="proxyDraft" placeholder="例如 http://127.0.0.1:7897；留空为直连" @keydown.enter="saveSettings">
+          <div class="settings-help">只影响之后新加入、重试或重入队的下载任务。留空表示不使用代理。</div>
+        </div>
+        <div class="settings-current">当前：<b>{{ settings.aria2_all_proxy || '直连' }}</b></div>
+      </div>
+      <div class="he-foot">
+        <button class="ghost-btn" @click="proxyDraft=''; saveSettings()">直连</button>
+        <div class="spacer"></div>
+        <button class="add-btn" style="height:40px;min-width:110px" :disabled="settingsSaving" @click="saveSettings">
+          <span class="label-swap">{{ settingsSaving ? '保存中…' : '保存' }}</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <div class="he-backdrop" v-if="heOpen" @click.self="heOpen=false">
     <div class="he-modal">
       <div class="he-head">
@@ -375,14 +430,15 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:
         <div class="he-seg">
           <button :class="{on:heType==='asmr'}" @click="setHeType('asmr')">ASMR</button>
           <button :class="{on:heType==='wnacg'}" @click="setHeType('wnacg')">wnacg</button>
+          <button :class="{on:heType==='x'}" @click="setHeType('x')">X</button>
         </div>
         <button class="he-sync" :disabled="heSyncing||heLoading" @click="syncHe" :title="'去 HE 重新拉取「'+heType+'」收藏'">
           <span v-html="svg('retry',15)" :class="{spinning:heSyncing}"></span>{{ heSyncing ? '同步中…' : '同步' }}
         </button>
         <button class="he-close" @click="heOpen=false">✕</button>
       </div>
-      <label class="he-search"><span v-html="svg('search',16)"></span><input v-model="heSearch" @input="loadHe" placeholder="搜索收藏标题…"></label>
-      <div class="he-list">
+      <label class="he-search" v-if="heType!=='x'"><span v-html="svg('search',16)"></span><input v-model="heSearch" @input="loadHe" placeholder="搜索收藏标题…"></label>
+      <div class="he-list" v-if="heType!=='x'">
         <div class="he-empty" v-if="heLoading">加载中…</div>
         <div class="he-empty" v-else-if="heErr">{{ heErr }}</div>
         <div class="he-empty" v-else-if="!heItems.length">没有收藏（或该来源未同步）</div>
@@ -392,7 +448,72 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:
           <span class="tag" v-if="it.local_media_id">已在库</span>
         </div>
       </div>
-      <div class="he-foot">
+      <div class="x-panel" v-else>
+        <div class="he-empty" v-if="xLoading">加载 X 状态中…</div>
+        <div class="he-empty" v-else-if="xErr">{{ xErr }}</div>
+        <template v-else>
+          <div class="x-card">
+            <div class="x-row">
+              <span class="x-title">{{ xState.source?.name || 'X 喜欢导入' }}</span>
+              <span class="badge" :class="xState.source?.cookie_saved ? 'b-complete' : 'b-paused'"><span class="bdot"></span>{{ xState.source?.cookie_saved ? 'Cookie 已保存' : '未保存 Cookie' }}</span>
+            </div>
+            <div class="x-muted" style="margin-top:8px">下载位置</div>
+            <div class="x-mono">{{ xState.source?.download_root_path || '未配置，请先在 HEmanager 的 X 面板保存下载位置' }}</div>
+            <div class="x-muted" v-if="xState.source?.last_archive_name" style="margin-top:8px">归档：{{ xState.source.last_archive_name }}</div>
+          </div>
+
+          <div class="x-stats">
+            <div class="x-stat"><div class="lab">已发现</div><div class="num">{{ xStats.total_posts || 0 }}</div></div>
+            <div class="x-stat"><div class="lab">已完成</div><div class="num">{{ xStats.completed_posts || 0 }}</div></div>
+            <div class="x-stat"><div class="lab">失败</div><div class="num">{{ xStats.failed_posts || 0 }}</div></div>
+            <div class="x-stat"><div class="lab">跳过</div><div class="num">{{ xStats.skipped_posts || 0 }}</div></div>
+          </div>
+
+          <div class="x-card">
+            <div class="x-row" style="justify-content:space-between">
+              <div>
+                <div class="x-title">导入控制</div>
+                <div class="x-muted">同步负责拉取最新喜欢；导入负责下载媒体并入 HE 媒体库。</div>
+              </div>
+            </div>
+            <div class="x-actions" style="margin-top:12px">
+              <button class="ghost-btn" :disabled="xBusy||xImportRunning||!xState.source?.download_root_path" @click="startXImport('all')"><span v-html="svg('play',15)"></span> 开始导入</button>
+              <button class="ghost-btn" :disabled="xBusy||xImportRunning||!(xStats.failed_posts>0)" @click="startXImport('failed')"><span v-html="svg('retry',15)"></span> 重试失败 ({{ xStats.failed_posts || 0 }})</button>
+              <button class="ghost-btn" :disabled="xBusy||xImportRunning||!(xStats.skipped_posts>0)" @click="startXImport('skipped')"><span v-html="svg('retry',15)"></span> 重试跳过 ({{ xStats.skipped_posts || 0 }})</button>
+              <button class="ghost-btn" v-if="xImportRunning" @click="xImportAction('pause')"><span v-html="svg('pause',15)"></span> 暂停导入</button>
+              <button class="ghost-btn" v-if="xState.active_job?.status==='paused'" @click="xImportAction('resume')"><span v-html="svg('play',15)"></span> 继续导入</button>
+              <button class="ghost-btn" v-if="xImportRunning||xState.active_job?.status==='paused'" @click="xImportAction('cancel')"><span v-html="svg('cancel',15)"></span> 取消导入</button>
+              <button class="ghost-btn" v-if="xSyncRunning" @click="cancelXSync"><span v-html="svg('cancel',15)"></span> 取消同步</button>
+            </div>
+          </div>
+
+          <div class="x-card x-job" v-if="xState.active_sync">
+            <div class="x-job-head">
+              <div><div class="x-job-title">同步最新收藏</div><div class="x-job-msg">{{ xState.active_sync.message || xState.active_sync.stop_reason || '等待中' }}</div></div>
+              <span class="badge" :class="'b-'+statusMeta(xState.active_sync.status).k"><span class="bdot"></span>{{ xStatusText(xState.active_sync.status) }}</span>
+            </div>
+            <div class="x-progress-line"><span>页数 <b>{{ xState.active_sync.pages_scanned || 0 }}</b></span><span>新收藏 <b>{{ xState.active_sync.new_posts || 0 }}</b></span><span>已存在 <b>{{ xState.active_sync.existing_posts || 0 }}</b></span></div>
+          </div>
+
+          <div class="x-card x-job" v-if="xState.active_job">
+            <div class="x-job-head">
+              <div><div class="x-job-title">媒体导入</div><div class="x-job-msg">{{ xState.active_job.message || '等待中' }}</div></div>
+              <span class="badge" :class="'b-'+statusMeta(xState.active_job.status).k"><span class="bdot"></span>{{ xStatusText(xState.active_job.status) }}</span>
+            </div>
+            <div class="track"><div class="fill" :class="'s-'+statusMeta(xState.active_job.status).k" :style="{width:xImportProgress+'%'}"></div></div>
+            <div class="x-progress-line">
+              <span>Post <b>{{ xState.active_job.scanned_posts || 0 }}</b> / {{ xState.active_job.total_posts || 0 }}</span>
+              <span>媒体 <b>{{ xState.active_job.media_downloaded || 0 }}</b> / {{ xState.active_job.media_total || 0 }}</span>
+              <span>失败 <b>{{ xState.active_job.media_failed || 0 }}</b></span>
+            </div>
+            <div class="x-muted" v-if="xState.active_job.current_post_id">当前：{{ xState.active_job.current_author || 'x' }} / {{ xState.active_job.current_post_id }} {{ xState.active_job.current_file ? '· '+xState.active_job.current_file : '' }}</div>
+            <div class="x-errors" v-if="xState.active_job.errors?.length">
+              <div class="x-error" v-for="(err,idx) in xState.active_job.errors.slice(-5)" :key="idx" :title="err.message">{{ err.tweet_id }} · {{ err.message }}</div>
+            </div>
+          </div>
+        </template>
+      </div>
+      <div class="he-foot" v-if="heType!=='x'">
         <span class="he-empty" style="padding:0">已选 {{ heSel.length }}</span>
         <div class="spacer"></div>
         <button class="add-btn" style="height:40px;min-width:120px" :class="{morph:false}" :disabled="!heSel.length||hePushing" @click="pushHe">
@@ -441,9 +562,10 @@ const ICONS = {
   server:'<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
   batch:'<path d="M12 3 3 7.5l9 4.5 9-4.5z"/><path d="M3 12l9 4.5 9-4.5"/><path d="M3 16.5 12 21l9-4.5"/>',
   chevron:'<path d="M6 9l6 6 6-6"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.04.04a2 2 0 1 1-2.83 2.83l-.04-.04A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.05A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.04.04a2 2 0 1 1-2.83-2.83l.04-.04A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.05A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.04-.04a2 2 0 1 1 2.83-2.83l.04.04A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.05A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.04-.04a2 2 0 1 1 2.83 2.83l-.04.04A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.05A1.7 1.7 0 0 0 19.4 15z"/>',
 }
 const KINDS = { app:{label:'软件',hue:222}, doc:{label:'文档',hue:200}, video:{label:'视频',hue:280}, zip:{label:'压缩',hue:38}, magnet:{label:'磁力',hue:160}, batch:{label:'分组',hue:165} }
-const STATUS = { active:{t:'下载中',k:'active'}, waiting:{t:'等待',k:'waiting'}, pending:{t:'排队',k:'waiting'}, paused:{t:'已暂停',k:'paused'}, complete:{t:'已完成',k:'complete'}, error:{t:'失败',k:'error'}, canceled:{t:'已取消',k:'canceled'} }
+const STATUS = { active:{t:'下载中',k:'active'}, waiting:{t:'等待',k:'waiting'}, pending:{t:'排队',k:'waiting'}, queued:{t:'排队',k:'waiting'}, preparing:{t:'准备中',k:'waiting'}, running:{t:'运行中',k:'active'}, paused:{t:'已暂停',k:'paused'}, complete:{t:'已完成',k:'complete'}, completed:{t:'已完成',k:'complete'}, error:{t:'失败',k:'error'}, failed:{t:'失败',k:'error'}, canceled:{t:'已取消',k:'canceled'} }
 const ACTIVE = ['active','waiting','pending']
 const TERMINAL = ['complete','error','canceled']
 const TABS = [
@@ -465,11 +587,15 @@ createApp({
     const swapping = ref(false)
     const segEl = ref(null)
     const ind = reactive({ left:4, width:0, ready:false })
+    const settingsOpen = ref(false), settingsSaving = ref(false), proxyDraft = ref('')
+    const settings = reactive({ aria2_all_proxy: '' })
     // 从 HE 收藏导入
     const heAvailable = ref(false), heOpen = ref(false), heType = ref('asmr')
     const heSearch = ref(''), heItems = ref([]), heLoading = ref(false), heErr = ref(''), hePushing = ref(false)
     const heSyncing = ref(false)
     const heSel = ref([])
+    const xState = reactive({ source:null, stats:null, active_job:null, active_sync:null })
+    const xLoading = ref(false), xErr = ref(''), xBusy = ref(false)
     // 分组任务展开状态：{ [jobId]: true }
     const expanded = reactive({})
 
@@ -521,6 +647,24 @@ createApp({
     }
     async function pollJobs() { try { setJobs(await api('/jobs')) } catch(_){} }
     async function refreshHealth() { try { health.value = { ok:true, aria2:(await api('/health')).aria2 } } catch { health.value = { ok:false, aria2:'' } } }
+    async function loadSettings() {
+      try {
+        const data = await api('/settings')
+        settings.aria2_all_proxy = data.aria2_all_proxy || ''
+      } catch (_) {}
+    }
+    function openSettings() { proxyDraft.value = settings.aria2_all_proxy || ''; settingsOpen.value = true }
+    async function saveSettings() {
+      settingsSaving.value = true
+      try {
+        const data = await api('/settings', { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ aria2_all_proxy: proxyDraft.value.trim() }) })
+        settings.aria2_all_proxy = data.aria2_all_proxy || ''
+        proxyDraft.value = settings.aria2_all_proxy
+        settingsOpen.value = false
+        pushToast({ kind:'success', title:'代理设置已保存', desc: settings.aria2_all_proxy || '直连' })
+      } catch(e) { pushToast({ kind:'error', title:'保存失败', desc:String(e.message||e) }) }
+      finally { settingsSaving.value = false }
+    }
 
     // ---- 操作 ----
     function fireAdd() {
@@ -561,9 +705,24 @@ createApp({
     const heHas = (id) => heSel.value.includes(id)
     function toggleHe(id) { heSel.value = heHas(id) ? heSel.value.filter(x => x !== id) : [...heSel.value, id] }
     async function checkHe() { try { const r = await fetch('/he/enabled'); heAvailable.value = (await r.json()).enabled } catch (_) {} }
-    function openHe() { heOpen.value = true; heSel.value = []; loadHe() }
-    function setHeType(t) { heType.value = t; heSel.value = []; loadHe() }
+    function openHe() {
+      heOpen.value = true
+      heSel.value = []
+      if (heType.value === 'x') loadXState(true)
+      else loadHe()
+      loadXState(true)
+    }
+    function setHeType(t) {
+      heType.value = t
+      heSel.value = []
+      if (t === 'x') {
+        loadXState(true)
+        return
+      }
+      loadHe()
+    }
     async function loadHe() {
+      if (heType.value === 'x') { await loadXState(); return }
       heLoading.value = true; heErr.value = ''
       try {
         const q = '/he/favorites?source_type=' + heType.value +
@@ -576,6 +735,13 @@ createApp({
       if (heSyncing.value) return
       heSyncing.value = true; heErr.value = ''
       try {
+        if (heType.value === 'x') {
+          const res = await api('/he/x/sync', { method: 'POST' })
+          xState.active_sync = res
+          pushToast({ kind: 'success', title: 'X 同步已开始', desc: res.message || res.job_id || '正在拉取最新收藏' })
+          await loadXState(true)
+          return
+        }
         const res = await api('/he/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ source_type: heType.value }) })
         pushToast({ kind: 'success', title: '收藏已同步', desc: '拉到 ' + (res.synced_count ?? 0) + ' 个收藏' })
@@ -597,6 +763,54 @@ createApp({
       finally { hePushing.value = false }
     }
 
+    async function loadXState(silent=false) {
+      if (!silent) xLoading.value = true
+      if (!silent) xErr.value = ''
+      try {
+        const data = await api('/he/x/state')
+        xState.source = data.source || null
+        xState.stats = data.stats || null
+        xState.active_job = data.active_job || null
+        xState.active_sync = data.active_sync || null
+        xErr.value = ''
+      } catch (e) {
+        if (!silent || !(xState.source || xState.stats || xState.active_job || xState.active_sync)) {
+          xErr.value = String(e.message || e)
+        }
+      }
+      finally { if (!silent) xLoading.value = false }
+    }
+    async function startXImport(mode) {
+      if (xBusy.value) return
+      xBusy.value = true; xErr.value = ''
+      try {
+        const res = await api('/he/x/imports', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ mode }) })
+        xState.active_job = res
+        const label = mode === 'failed' ? '重试失败' : mode === 'skipped' ? '重试跳过' : '开始导入'
+        pushToast({ kind:'success', title:'X '+label, desc: res.message || res.job_id || '后台任务已创建' })
+        await loadXState(true)
+      } catch (e) { xErr.value = String(e.message || e); pushToast({ kind:'error', title:'X 导入失败', desc:xErr.value }) }
+      finally { xBusy.value = false }
+    }
+    async function xImportAction(action) {
+      const jobId = xState.active_job?.job_id
+      if (!jobId) return
+      try {
+        const res = await api('/he/x/imports/' + encodeURIComponent(jobId) + '/' + action, { method:'POST' })
+        xState.active_job = res
+        await loadXState(true)
+      } catch (e) { pushToast({ kind:'error', title:'X 导入操作失败', desc:String(e.message || e) }) }
+    }
+    async function cancelXSync() {
+      const jobId = xState.active_sync?.job_id
+      if (!jobId) return
+      try {
+        const res = await api('/he/x/syncs/' + encodeURIComponent(jobId) + '/cancel', { method:'POST' })
+        xState.active_sync = res
+        await loadXState(true)
+      } catch (e) { pushToast({ kind:'error', title:'X 同步取消失败', desc:String(e.message || e) }) }
+    }
+
     // ---- 计算 ----
     const tabMatch = (j) => (TABS.find(t => t.id === tab.value) || TABS[0]).m(j)
     const filtered = computed(() => jobs.value.filter(j => tabMatch(j) && (type.value==='all' || kindOf(j)===type.value) && (!query.value.trim() || (j.name||'').toLowerCase().includes(query.value.trim().toLowerCase()))))
@@ -606,6 +820,20 @@ createApp({
     const completeCount = computed(() => jobs.value.filter(j => j.status==='complete').length)
     const hasTerminal = computed(() => jobs.value.some(isTerminal))
     const filterLabel = computed(() => { if (query.value.trim()) return query.value.trim(); if (type.value!=='all') return (typeChips.find(c=>c.id===type.value)||{}).label; if (tab.value!=='all') return (TABS.find(t=>t.id===tab.value)||{}).label; return '' })
+    const xStats = computed(() => xState.stats || {})
+    const xImportRunning = computed(() => ['queued','preparing','running'].includes(xState.active_job?.status || ''))
+    const xSyncRunning = computed(() => ['queued','running'].includes(xState.active_sync?.status || ''))
+    const xImportProgress = computed(() => {
+      const job = xState.active_job || {}
+      const total = Number(job.media_total || job.total_posts || 0)
+      const done = Number(job.media_downloaded || job.scanned_posts || 0)
+      if (!total) return job.status === 'completed' ? 100 : 0
+      return Math.min(100, Math.round(done / total * 100))
+    })
+    const xStatusText = (status) => ({
+      queued:'排队', preparing:'准备中', running:'运行中', paused:'已暂停',
+      completed:'已完成', failed:'失败', canceled:'已取消',
+    }[status] || status || '未知')
 
     // ---- 段控指示器 + 入场重放 ----
     function measureSeg() { nextTick(() => { const c=segEl.value; if(!c) return; const on=c.querySelector('.seg-btn.on'); if(on){ ind.left=on.offsetLeft; ind.width=on.offsetWidth; ind.ready=true } }) }
@@ -613,15 +841,21 @@ createApp({
     watch([tab, type, query], () => { swapping.value=false; requestAnimationFrame(() => requestAnimationFrame(() => { swapping.value=true })) })
     window.addEventListener('resize', measureSeg)
 
-    onMounted(() => { refreshHealth(); connect(); setInterval(refreshHealth, 5000); measureSeg(); checkHe() })
+    onMounted(() => {
+      refreshHealth(); connect(); setInterval(refreshHealth, 5000); measureSeg(); checkHe(); loadSettings()
+      setInterval(() => { if (heOpen.value && heType.value === 'x' && !xLoading.value) loadXState(true) }, 3000)
+    })
 
     return { jobs, health, tab, type, query, view, src, addPhase, toasts, swapping, segEl, ind, typeChips,
       tabsWithCount, filtered, totalSpeed, activeCount, completeCount, hasTerminal, filterLabel,
       svg, round, fmtBytes, fmtSpeed, fmtEta, fmtAgo, statusMeta, kindOf, kindLabel, kindHue, canPause, isTerminal, fillW,
       expanded, toggleExpand, fileDone,
       fireAdd, action, clearDone,
+      settingsOpen, settingsSaving, settings, proxyDraft, openSettings, saveSettings,
       heAvailable, heOpen, heType, heSearch, heItems, heLoading, heErr, hePushing, heSyncing, heSel,
-      heHas, toggleHe, openHe, setHeType, loadHe, pushHe, syncHe }
+      heHas, toggleHe, openHe, setHeType, loadHe, pushHe, syncHe,
+      xState, xLoading, xErr, xBusy, xStats, xImportRunning, xSyncRunning, xImportProgress, xStatusText,
+      startXImport, xImportAction, cancelXSync }
   }
 }).mount('#app')
 </script>

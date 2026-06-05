@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import ntpath
 import os
 import posixpath
+import re
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -17,7 +19,7 @@ from . import store
 from .aria2 import Aria2Client, Aria2Error
 from .config import settings
 from .schemas import (
-    BatchCreate, GlobalStat, HePushRequest, HeSyncRequest, JobCreate, JobFile, JobView,
+    BatchCreate, GlobalStat, HePushRequest, HeSyncRequest, HeXImportRequest, JobCreate, JobFile, JobView,
 )
 
 log = logging.getLogger("gateway")
@@ -91,13 +93,44 @@ async def require_auth(
 # --- aria2 选项 / 状态映射 ---------------------------------------------------
 
 def _resolve_dir(dest_dir: Optional[str]) -> str:
-    # 下载目录始终是容器内的 Linux 路径，用 posixpath 保证正斜杠（与宿主 OS 无关）。
     base = settings.download_dir
     if not dest_dir:
         return base
-    if posixpath.isabs(dest_dir):
+    if _is_absolute_download_path(dest_dir):
         return dest_dir
-    return posixpath.join(base, dest_dir)
+    return _join_download_path(base, dest_dir)
+
+
+def _is_windows_path(path: str) -> bool:
+    return bool(re.match(r"^[A-Za-z]:[\\/]", path or "") or (path or "").startswith("\\\\"))
+
+
+def _is_absolute_download_path(path: str) -> bool:
+    return bool(posixpath.isabs(path or "") or _is_windows_path(path or ""))
+
+
+def _join_download_path(base: str, *parts: str) -> str:
+    if _is_windows_path(base):
+        return ntpath.join(base, *[p.replace("/", "\\") for p in parts if p])
+    return posixpath.join(base, *[p.replace("\\", "/") for p in parts if p])
+
+
+def _normalize_proxy(value: Optional[str]) -> str:
+    raw = (value or "").strip()
+    if raw.lower() in {"none", "direct", "off", "0"}:
+        return ""
+    return raw
+
+
+def _download_proxy() -> str:
+    return _normalize_proxy(store.get_setting("aria2_all_proxy", settings.aria2_all_proxy))
+
+
+def _apply_download_proxy(options: dict) -> dict:
+    proxy = _download_proxy()
+    if proxy:
+        options["all-proxy"] = proxy
+    return options
 
 
 def _build_options(type: str, resolved_dir: str, filename: Optional[str], headers: Optional[dict]) -> dict:
@@ -109,22 +142,47 @@ def _build_options(type: str, resolved_dir: str, filename: Optional[str], header
     if type == "magnet":
         options["seed-time"] = "0"      # 下完即停、不做种
         options["bt-stop-timeout"] = "120"
-    return options
+        options["bt-save-metadata"] = "true"
+        options["bt-load-saved-metadata"] = "true"
+        trackers = (settings.bt_trackers or "").strip().strip(",")
+        if trackers:
+            options["bt-tracker"] = trackers
+    return _apply_download_proxy(options)
 
 
 def _build_file_options(dest_dir: str, rel_path: str, headers: Optional[dict]) -> dict:
     """分组任务里单个文件的 aria2 选项：dir = dest_dir + rel 的目录段，out = 文件名。"""
-    sub = posixpath.dirname(rel_path or "")
-    options: dict[str, object] = {"dir": posixpath.join(dest_dir, sub) if sub else dest_dir}
-    out = posixpath.basename(rel_path or "")
+    if _is_windows_path(dest_dir):
+        normalized_rel = (rel_path or "").replace("/", "\\")
+        sub = ntpath.dirname(normalized_rel)
+        out = ntpath.basename(normalized_rel)
+    else:
+        normalized_rel = (rel_path or "").replace("\\", "/")
+        sub = posixpath.dirname(normalized_rel)
+        out = posixpath.basename(normalized_rel)
+    options: dict[str, object] = {"dir": _join_download_path(dest_dir, sub) if sub else dest_dir}
     if out:
         options["out"] = out
     if headers:
         options["header"] = [f"{k}: {v}" for k, v in headers.items()]
-    return options
+    return _apply_download_proxy(options)
 
 
 _STATUS_MAP = {"complete": "complete", "error": "error", "removed": "canceled"}
+
+
+def _aria_error_message(raw: dict) -> Optional[str]:
+    message = (raw.get("errorMessage") or "").strip()
+    if message:
+        return message
+    code = str(raw.get("errorCode") or "").strip()
+    if not code:
+        return None
+    if code == "7":
+        if str(raw.get("totalLength") or "0") == "0":
+            return "未获取到磁力元数据：当前没有可用 peer/seed，或 tracker/DHT 网络不可达"
+        return "BT 下载中断：当前没有足够可用 peer/seed，可稍后重试续传"
+    return f"aria2 errorCode={code}"
 
 
 def _aggregate_batch(files: list[dict]) -> dict:
@@ -132,18 +190,22 @@ def _aggregate_batch(files: list[dict]) -> dict:
     total = sum(int(f.get("total_bytes") or 0) for f in files)
     completed = sum(int(f.get("completed_bytes") or 0) for f in files)
     speed = sum(int(f.get("download_speed") or 0) for f in files if f.get("status") == "active")
-    sts = [f.get("status") for f in files]
-    if files and all(s == "complete" for s in sts):
+    required = [f for f in files if not f.get("optional")]
+    optional = [f for f in files if f.get("optional")]
+    required_sts = [f.get("status") for f in required]
+    all_sts = [f.get("status") for f in files]
+    optional_terminal = all((f.get("status") in ("complete", "error", "canceled")) for f in optional)
+    if files and required and all(s == "complete" for s in required_sts) and optional_terminal:
         status = "complete"
-    elif any(s in ("active", "waiting", "pending") for s in sts):
+    elif any(s in ("active", "waiting", "pending") for s in all_sts):
         status = "active"
-    elif any(s == "paused" for s in sts):
+    elif any(s == "paused" for s in all_sts):
         status = "paused"
-    elif any(s == "error" for s in sts):
+    elif any(s == "error" for s in required_sts):
         status = "error"
     else:
         status = "canceled"
-    n_err = sum(1 for s in sts if s == "error")
+    n_err = sum(1 for s in required_sts if s == "error")
     return {
         "status": status,
         "total_bytes": total,
@@ -175,7 +237,7 @@ def _map_raw(raw: dict) -> dict:
         "total_bytes": total,
         "completed_bytes": completed,
         "download_speed": int(raw.get("downloadSpeed", 0) or 0),
-        "error": raw.get("errorMessage") if status == "error" else None,
+        "error": _aria_error_message(raw) if status == "error" else None,
     }
 
 
@@ -189,6 +251,7 @@ def _batch_file_views(job_id: str) -> list[JobFile]:
         out.append(JobFile(
             name=posixpath.basename(rel) or rel or f.get("url") or "",
             rel_path=rel,
+            optional=bool(f.get("optional")),
             status=f.get("status") or "pending",
             total_bytes=total,
             completed_bytes=completed,
@@ -267,6 +330,16 @@ async def _reconcile_once(aria2: Aria2Client) -> None:
         gid = job.get("gid")
         raw = by_gid.get(gid) if gid else None
         if raw is not None:
+            followed_by = raw.get("followedBy") or []
+            if followed_by:
+                next_gid = followed_by[0]
+                store.set_gid(job["id"], next_gid)
+                next_raw = by_gid.get(next_gid)
+                if next_raw is not None:
+                    store.update_progress(job["id"], **_map_raw(next_raw))
+                else:
+                    store.set_status(job["id"], "active")
+                continue
             store.update_progress(job["id"], **_map_raw(raw))
             _maybe_fire_callback(app.state.http, job["id"])
             continue
@@ -340,6 +413,18 @@ async def health(aria2: Aria2Client = Depends(get_aria2)):
         raise HTTPException(status_code=503, detail=f"aria2 不可达: {exc}")
 
 
+@app.get("/settings", dependencies=[Depends(require_auth)])
+async def get_settings():
+    return {"aria2_all_proxy": _download_proxy()}
+
+
+@app.put("/settings", dependencies=[Depends(require_auth)])
+async def update_settings(payload: dict):
+    if "aria2_all_proxy" in payload:
+        store.set_setting("aria2_all_proxy", _normalize_proxy(payload.get("aria2_all_proxy")))
+    return {"aria2_all_proxy": _download_proxy()}
+
+
 @app.post("/jobs", response_model=JobView, dependencies=[Depends(require_auth)])
 async def create_job(payload: JobCreate, aria2: Aria2Client = Depends(get_aria2)):
     resolved = _resolve_dir(payload.dest_dir)
@@ -369,7 +454,10 @@ async def create_batch_job(payload: BatchCreate, aria2: Aria2Client = Depends(ge
     resolved = _resolve_dir(payload.dest_dir)
     job_id = store.create_batch(
         name=payload.name, dest_dir=resolved, callback_url=payload.callback_url,
-        files=[{"url": f.url, "rel_path": f.rel_path, "headers": f.headers} for f in payload.files],
+        files=[
+            {"url": f.url, "rel_path": f.rel_path, "headers": f.headers, "optional": f.optional}
+            for f in payload.files
+        ],
     )
     # 立即入队（不等对账那一拍），失败的文件标 error，由对账兜底/重试。
     for f in store.batch_files(job_id):
@@ -516,6 +604,39 @@ async def _he_get(path: str, params: Optional[dict] = None):
     return resp.json()
 
 
+def _he_detail(resp) -> str:
+    try:
+        detail = resp.json().get("detail", "")
+        return str(detail) if detail else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+async def _he_request_json(method: str, path: str, *, json_body: Optional[dict] = None, timeout: float = 30.0):
+    if not _he_configured():
+        raise HTTPException(status_code=503, detail="未配置 HE Manager（HE_MANAGER_URL）")
+    try:
+        resp = await app.state.http.request(
+            method,
+            _he_url(path),
+            json=json_body,
+            headers=_he_headers(),
+            timeout=timeout,
+        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"HE 不可达: {exc}")
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=_he_detail(resp) or "HE 请求失败")
+    return resp.json()
+
+
+async def _he_x_source() -> dict:
+    sources = await _he_request_json("GET", "/x/sources", timeout=30.0)
+    if not sources:
+        raise HTTPException(status_code=400, detail="HE 里还没有 X 来源")
+    return sources[0]
+
+
 @app.get("/he/enabled")
 async def he_enabled():
     return {"enabled": _he_configured()}
@@ -620,6 +741,65 @@ async def he_sync(payload: HeSyncRequest):
         raise HTTPException(status_code=resp.status_code, detail=str(detail) or "HE 同步失败")
     data = resp.json()
     return {"synced_count": data.get("synced_count", 0), "source_type": payload.source_type}
+
+
+@app.get("/he/x/state", dependencies=[Depends(require_auth)])
+async def he_x_state():
+    source = await _he_x_source()
+    source_id = source["id"]
+    state = {"source": source, "stats": None, "active_job": None, "active_sync": None}
+    try:
+        state["stats"] = await _he_request_json("GET", f"/x/sources/{source_id}/stats", timeout=30.0)
+    except HTTPException as exc:
+        state["stats_error"] = exc.detail
+    try:
+        state["active_job"] = await _he_request_json("GET", f"/x/sources/{source_id}/active-job", timeout=30.0)
+    except HTTPException as exc:
+        state["active_job_error"] = exc.detail
+    try:
+        state["active_sync"] = await _he_request_json("GET", f"/x/sources/{source_id}/active-sync", timeout=30.0)
+    except HTTPException as exc:
+        state["active_sync_error"] = exc.detail
+    return state
+
+
+@app.post("/he/x/sync", dependencies=[Depends(require_auth)])
+async def he_x_sync():
+    source = await _he_x_source()
+    return await _he_request_json("POST", f"/x/sources/{source['id']}/sync", timeout=30.0)
+
+
+@app.post("/he/x/imports", dependencies=[Depends(require_auth)])
+async def he_x_import(payload: HeXImportRequest):
+    source = await _he_x_source()
+    body = {
+        "source_id": source["id"],
+        "retry_failed_only": payload.mode == "failed",
+        "retry_skipped_only": payload.mode == "skipped",
+    }
+    return await _he_request_json("POST", "/x/imports", json_body=body, timeout=30.0)
+
+
+@app.get("/he/x/imports/{job_id}", dependencies=[Depends(require_auth)])
+async def he_x_import_job(job_id: str):
+    return await _he_request_json("GET", f"/x/imports/{job_id}", timeout=30.0)
+
+
+@app.post("/he/x/imports/{job_id}/{action}", dependencies=[Depends(require_auth)])
+async def he_x_import_action(job_id: str, action: str):
+    if action not in {"pause", "resume", "cancel"}:
+        raise HTTPException(status_code=404, detail="未知 X 导入操作")
+    return await _he_request_json("POST", f"/x/imports/{job_id}/{action}", timeout=30.0)
+
+
+@app.get("/he/x/syncs/{job_id}", dependencies=[Depends(require_auth)])
+async def he_x_sync_job(job_id: str):
+    return await _he_request_json("GET", f"/x/syncs/{job_id}", timeout=30.0)
+
+
+@app.post("/he/x/syncs/{job_id}/cancel", dependencies=[Depends(require_auth)])
+async def he_x_sync_cancel(job_id: str):
+    return await _he_request_json("POST", f"/x/syncs/{job_id}/cancel", timeout=30.0)
 
 
 @app.get("/stat", response_model=GlobalStat, dependencies=[Depends(require_auth)])

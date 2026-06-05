@@ -61,6 +61,7 @@ def init() -> None:
             url             TEXT NOT NULL,
             rel_path        TEXT,
             headers         TEXT,
+            optional        INTEGER DEFAULT 0,
             gid             TEXT,
             status          TEXT NOT NULL DEFAULT 'pending',
             total_bytes     INTEGER DEFAULT 0,
@@ -71,11 +72,44 @@ def init() -> None:
         """
     )
     _conn.execute("CREATE INDEX IF NOT EXISTS idx_job_files_job ON job_files(job_id)")
+    _conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS settings (
+            key        TEXT PRIMARY KEY,
+            value      TEXT NOT NULL DEFAULT '',
+            updated_at REAL NOT NULL
+        )
+        """
+    )
     # 老库迁移：早于回调功能建的库没有 callback_fired 列，补上。
     cols = {r["name"] for r in _conn.execute("PRAGMA table_info(jobs)")}
     if "callback_fired" not in cols:
         _conn.execute("ALTER TABLE jobs ADD COLUMN callback_fired INTEGER DEFAULT 0")
+    file_cols = {r["name"] for r in _conn.execute("PRAGMA table_info(job_files)")}
+    if "optional" not in file_cols:
+        _conn.execute("ALTER TABLE job_files ADD COLUMN optional INTEGER DEFAULT 0")
     _conn.commit()
+
+
+def get_setting(key: str, default: str = "") -> str:
+    assert _conn is not None
+    with _lock:
+        row = _conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else default
+
+
+def set_setting(key: str, value: str) -> None:
+    assert _conn is not None
+    with _lock:
+        now = time.time()
+        _conn.execute(
+            """
+            INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            (key, value, now),
+        )
+        _conn.commit()
 
 
 def _now() -> float:
@@ -206,7 +240,7 @@ def create_batch(
     callback_url: Optional[str],
     files: list[dict],
 ) -> str:
-    """files: [{url, rel_path, headers(dict|None)}]。父 job type='batch'。"""
+    """files: [{url, rel_path, headers(dict|None), optional(bool)}]。父 job type='batch'。"""
     job_id = uuid.uuid4().hex
     now = _now()
     with _lock:
@@ -218,10 +252,11 @@ def create_batch(
         )
         for f in files:
             _conn.execute(
-                """INSERT INTO job_files (job_id, url, rel_path, headers, status)
-                   VALUES (?, ?, ?, ?, 'pending')""",
+                """INSERT INTO job_files (job_id, url, rel_path, headers, optional, status)
+                   VALUES (?, ?, ?, ?, ?, 'pending')""",
                 (job_id, f["url"], f.get("rel_path"),
-                 json.dumps(f["headers"]) if f.get("headers") else None),
+                 json.dumps(f["headers"]) if f.get("headers") else None,
+                 1 if f.get("optional") else 0),
             )
         _conn.commit()
     return job_id

@@ -26,7 +26,7 @@ services:
       - ${DOWNLOAD_DIR:-./downloads}:/downloads
       # 媒体库盘：HE Manager 推收藏时 dest_dir 走 /mnt/hdd/...，aria2 直接下进库。
       # 主机端用 uid=1000 挂载，aria2(user 1000) 可写。盘没挂时此路径为空目录，无害。
-      - /mnt/hdd:/mnt/hdd
+      - ${MEDIA_DIR:-/mnt/hdd}:/mnt/hdd
     ports:
       - "${ARIA2_RPC_PORT:-6800}:6800"
       - "6888:6888"

@@ -30,6 +30,8 @@ class FakeAria2:
         self.gids: list[str] = []
 
     async def add_uri(self, uris, options=None):
+        if uris and "fail-optional" in uris[0]:
+            raise main.Aria2Error("optional failed")
         self.added.append((uris, options or {}))
         self.gid_seq += 1
         gid = f"gid-{self.gid_seq:03d}"
@@ -84,6 +86,7 @@ def client():
     app.dependency_overrides[get_aria2] = lambda: f
     with TestClient(app) as c:
         store._conn.execute("DELETE FROM jobs")
+        store._conn.execute("DELETE FROM settings")
         store._conn.commit()
         yield c, f
     app.dependency_overrides.clear()
@@ -109,6 +112,77 @@ def test_magnet_sets_no_seeding(client):
     c.post("/jobs", json={"type": "magnet", "source": "magnet:?xt=urn:btih:abc"})
     _, opts = f.added[0]
     assert opts["seed-time"] == "0"
+    assert opts["bt-save-metadata"] == "true"
+    assert opts["bt-load-saved-metadata"] == "true"
+    assert "tracker.opentrackr.org" in opts["bt-tracker"]
+
+
+def test_blank_magnet_metadata_error_gets_readable_message():
+    mapped = main._map_raw({
+        "status": "error",
+        "errorCode": "7",
+        "errorMessage": "",
+        "totalLength": "0",
+        "completedLength": "0",
+        "downloadSpeed": "0",
+        "files": [{"path": "[METADATA]abc"}],
+    })
+    assert "未获取到磁力元数据" in mapped["error"]
+
+
+def test_partial_bt_error_gets_readable_message():
+    mapped = main._map_raw({
+        "status": "error",
+        "errorCode": "7",
+        "errorMessage": "",
+        "totalLength": "2000",
+        "completedLength": "500",
+        "downloadSpeed": "0",
+        "bittorrent": {"info": {"name": "partial"}},
+        "files": [{"path": "/downloads/partial.bin"}],
+    })
+    assert "BT 下载中断" in mapped["error"]
+
+
+def test_reconcile_follows_magnet_metadata_gid(client):
+    c, f = client
+    b = c.post("/jobs", json={"type": "magnet", "source": "magnet:?xt=urn:btih:abc"}).json()
+    metadata_gid = f.gids[-1]
+    child_gid = "gid-real"
+
+    async def tell_active():
+        return [{
+            "gid": child_gid,
+            "status": "active",
+            "totalLength": "2000",
+            "completedLength": "500",
+            "downloadSpeed": "100",
+            "bittorrent": {"info": {"name": "real torrent"}},
+            "files": [{"path": "/downloads/real.bin", "length": "2000", "completedLength": "500"}],
+            "following": metadata_gid,
+        }]
+
+    async def tell_stopped(*_args):
+        return [{
+            "gid": metadata_gid,
+            "status": "complete",
+            "totalLength": "123",
+            "completedLength": "123",
+            "downloadSpeed": "0",
+            "followedBy": [child_gid],
+            "files": [{"path": "[METADATA]abc", "length": "123", "completedLength": "123"}],
+        }]
+
+    f.tell_active = tell_active
+    f.tell_stopped = tell_stopped
+    asyncio.run(main._reconcile_once(f))
+
+    row = store.get(b["id"])
+    assert row["gid"] == child_gid
+    assert row["status"] == "active"
+    assert row["name"] == "real torrent"
+    assert row["total_bytes"] == 2000
+    assert row["completed_bytes"] == 500
 
 
 def test_headers_and_dest_dir(client):
@@ -122,6 +196,37 @@ def test_headers_and_dest_dir(client):
     assert opts["dir"].endswith("manga/book1")
     assert opts["out"] == "001.jpg"
     assert "Referer: http://x" in opts["header"]
+
+
+def test_windows_absolute_batch_dest_dir(client, monkeypatch):
+    c, f = client
+    monkeypatch.setattr(main.settings, "download_dir", r"C:\downloads")
+    r = c.post("/jobs/batch", json={
+        "name": "win",
+        "dest_dir": r"D:\media\audio\work",
+        "files": [{"url": "http://x/a.mp3", "rel_path": "disc1/a.mp3"}],
+    })
+    assert r.status_code == 200
+    _, opts = f.added[0]
+    assert opts["dir"] == r"D:\media\audio\work\disc1"
+    assert opts["out"] == "a.mp3"
+
+
+def test_runtime_proxy_setting_applies_to_new_jobs(client):
+    c, f = client
+    r = c.put("/settings", json={"aria2_all_proxy": "http://127.0.0.1:7897"})
+    assert r.status_code == 200
+    assert r.json()["aria2_all_proxy"] == "http://127.0.0.1:7897"
+
+    c.post("/jobs", json={"type": "url", "source": "http://x/a.jpg"})
+    _, opts = f.added[-1]
+    assert opts["all-proxy"] == "http://127.0.0.1:7897"
+
+    r = c.put("/settings", json={"aria2_all_proxy": ""})
+    assert r.json()["aria2_all_proxy"] == ""
+    c.post("/jobs/batch", json={"name": "g", "dest_dir": "/d", "files": [{"url": "http://x/b.jpg", "rel_path": "b.jpg"}]})
+    _, opts = f.added[-1]
+    assert "all-proxy" not in opts
 
 
 def test_reconcile_updates_progress(client):
@@ -324,6 +429,31 @@ def test_callback_fires_for_batch_with_files(client):
     assert len(body["job"]["files"]) == 2  # 回调载荷带上逐文件明细
 
 
+def test_optional_batch_file_error_does_not_block_completion(client):
+    c, f = client
+    http = _FakeHttp()
+    main.app.state.http = http
+    b = c.post("/jobs/batch", json={"name": "g", "dest_dir": "/d",
+        "callback_url": "http://cb/b", "files": [
+            {"url": "http://x/001.jpg", "rel_path": "001.jpg"},
+            {"url": "http://x/fail-optional.jpg", "rel_path": ".he_cover/cover.jpg", "optional": True},
+        ]}).json()
+
+    g = c.get(f"/jobs/{b['id']}").json()
+    assert g["status"] == "active"
+    assert len(g["files"]) == 2
+    assert g["files"][1]["optional"] is True
+    assert g["files"][1]["status"] == "error"
+
+    f.done = True
+    asyncio.run(_reconcile_and_drain(f))
+    g = c.get(f"/jobs/{b['id']}").json()
+    assert g["status"] == "complete"
+    assert g["error"] is None
+    assert len(http.posted) == 1
+    assert http.posted[0][1]["event"] == "complete"
+
+
 def test_no_callback_without_url(client):
     c, f = client
     http = _FakeHttp()
@@ -382,6 +512,73 @@ def test_he_sync_unconfigured_source(client, monkeypatch):
     r = c.post("/he/sync", json={"source_type": "asmr"})
     assert r.status_code == 400
     assert "还没配置" in r.json()["detail"]
+
+
+def test_he_x_state_and_import_proxy(client, monkeypatch):
+    c, f = client
+    monkeypatch.setattr(main.settings, "he_manager_url", "http://he:8000")
+    calls = []
+
+    class _Resp:
+        def __init__(self, data, status=200):
+            self._data = data
+            self.status_code = status
+        def json(self):
+            return self._data
+
+    class FakeHeHttp:
+        async def request(self, method, url, json=None, headers=None, timeout=None):
+            calls.append((method, url, json))
+            if url.endswith("/x/sources"):
+                return _Resp([{"id": 9, "name": "X", "download_root_path": "D:\\x"}])
+            if url.endswith("/x/sources/9/stats"):
+                return _Resp({"total_posts": 3, "completed_posts": 1, "failed_posts": 1, "skipped_posts": 1, "pending_posts": 0, "total_media": 2, "downloaded_media": 1})
+            if url.endswith("/x/sources/9/active-job") or url.endswith("/x/sources/9/active-sync"):
+                return _Resp(None)
+            if url.endswith("/x/imports"):
+                return _Resp({"job_id": "job-x", "source_id": 9, "status": "queued", "download_root": "D:\\x"})
+            return _Resp({}, 404)
+
+    main.app.state.http = FakeHeHttp()
+    r = c.get("/he/x/state")
+    assert r.status_code == 200
+    assert r.json()["source"]["id"] == 9
+    assert r.json()["stats"]["failed_posts"] == 1
+
+    r = c.post("/he/x/imports", json={"mode": "failed"})
+    assert r.status_code == 200
+    method, url, body = calls[-1]
+    assert method == "POST"
+    assert url.endswith("/x/imports")
+    assert body == {"source_id": 9, "retry_failed_only": True, "retry_skipped_only": False}
+
+
+def test_he_x_sync_proxy(client, monkeypatch):
+    c, f = client
+    monkeypatch.setattr(main.settings, "he_manager_url", "http://he:8000")
+    calls = []
+
+    class _Resp:
+        def __init__(self, data, status=200):
+            self._data = data
+            self.status_code = status
+        def json(self):
+            return self._data
+
+    class FakeHeHttp:
+        async def request(self, method, url, json=None, headers=None, timeout=None):
+            calls.append((method, url, json))
+            if url.endswith("/x/sources"):
+                return _Resp([{"id": 9, "name": "X"}])
+            if url.endswith("/x/sources/9/sync"):
+                return _Resp({"job_id": "sync-x", "source_id": 9, "status": "queued"})
+            return _Resp({}, 404)
+
+    main.app.state.http = FakeHeHttp()
+    r = c.post("/he/x/sync")
+    assert r.status_code == 200
+    assert r.json()["job_id"] == "sync-x"
+    assert calls[-1][1].endswith("/x/sources/9/sync")
 
 
 def test_auth_enforced(monkeypatch):

@@ -23,6 +23,7 @@ class BatchFile(BaseModel):
     url: str
     rel_path: str = Field(..., description="相对 dest_dir 的路径，如 001.jpg 或 disc1/track01.mp3")
     headers: Optional[dict[str, str]] = None
+    optional: bool = Field(False, description="可选文件失败不阻塞父任务完成，例如封面侧车")
 
 
 class BatchCreate(BaseModel):
@@ -45,10 +46,15 @@ class HeSyncRequest(BaseModel):
     source_type: Literal["asmr", "wnacg"]
 
 
+class HeXImportRequest(BaseModel):
+    mode: Literal["all", "failed", "skipped"] = "all"
+
+
 class JobFile(BaseModel):
     """分组任务里的单个子文件（前端可展开逐文件看进度）。"""
     name: str = ""              # 显示名（rel_path 的文件名段）
     rel_path: str = ""
+    optional: bool = False
     status: str = "pending"     # 同 job 状态机
     total_bytes: int = 0
     completed_bytes: int = 0
